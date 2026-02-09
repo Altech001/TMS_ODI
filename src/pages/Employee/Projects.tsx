@@ -1,19 +1,23 @@
-import React, { useState, useEffect } from "react";
 import {
-    Folder,
-    Search,
-    Filter,
-    Users,
-    FileText,
-    Plus,
-    Clock,
-    Briefcase,
-    Loader2,
     AlertCircle,
-    RefreshCw
+    Archive,
+    Briefcase,
+    Clock,
+    FileText,
+    Filter,
+    Folder,
+    Loader2,
+    Plus,
+    RefreshCw,
+    Search,
+    Trash2,
+    Users
 } from "lucide-react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router";
-import { ProjectAPI, Project as APIProject } from "../../services/api";
+import { useOrganization } from "../../context/OrganizationContext";
+import { Modal } from "../../components/ui/modal";
+import { Project as APIProject, ProjectAPI } from "../../services/api";
 
 // UI Types (mapped from API)
 interface ProjectUI {
@@ -26,6 +30,7 @@ interface ProjectUI {
     fileCount: number;
     color: string;
     description: string;
+    status: string;
 }
 
 // Color palette for projects
@@ -67,6 +72,7 @@ const mapProjectToUI = (project: APIProject, memberCount: number = 0): ProjectUI
         fileCount: 0, // API doesn't track files yet
         color: getProjectColor(project.id),
         description: project.description || "No description provided.",
+        status: project.status,
     };
 };
 
@@ -104,7 +110,15 @@ const CircularProgress = ({ progress, color }: { progress: number; color: string
     );
 };
 
-const ProjectCard = ({ project }: { project: ProjectUI }) => (
+const ProjectCard = ({
+    project,
+    onArchive,
+    onDelete
+}: {
+    project: ProjectUI;
+    onArchive?: (id: string) => void;
+    onDelete?: (id: string) => void;
+}) => (
     <div className="bg-white dark:bg-[#2A2A2A]/40 border border-gray-200 dark:border-white/5 rounded p-0 overflow-hidden hover:border-gray-300 dark:hover:border-white/10 transition-all group hover:translate-y-[-2px] hover:shadow-2xl hover:shadow-black/40">
         {/* Card Header with Pattern/Gradient */}
         <div
@@ -168,11 +182,24 @@ const ProjectCard = ({ project }: { project: ProjectUI }) => (
                     <FileText className="w-4 h-4 text-gray-500 group-hover/link:text-brand-400" />
                     <span className="text-[9px] font-bold text-gray-500 uppercase">Files</span>
                 </button>
-                <button className="flex flex-col items-center justify-center gap-1.5 py-2 rounded bg-white/2 hover:bg-white/5 transition-colors group/link">
-                    <Users className="w-4 h-4 text-gray-500 group-hover/link:text-brand-400" />
-                    <span className="text-[9px] font-bold text-gray-500 uppercase">Team</span>
+                <button
+                    onClick={() => onDelete?.(project.id)}
+                    className="flex flex-col items-center justify-center gap-1.5 py-2 rounded bg-white/2 hover:bg-red-500/10 transition-colors group/link"
+                >
+                    <Trash2 className="w-4 h-4 text-gray-500 group-hover/link:text-red-500" />
+                    <span className="text-[9px] font-bold text-gray-500 uppercase group-hover/link:text-red-500">Delete</span>
                 </button>
             </div>
+
+            {project.status === "ACTIVE" && onArchive && (
+                <button
+                    onClick={() => onArchive(project.id)}
+                    className="w-full mt-2 flex items-center justify-center gap-2 py-2 rounded bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 transition-colors text-[9px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest"
+                >
+                    <Archive className="w-3.5 h-3.5" />
+                    Archive Project
+                </button>
+            )}
         </div>
     </div>
 );
@@ -206,29 +233,42 @@ const Projects: React.FC = () => {
     const [projects, setProjects] = useState<ProjectUI[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const { currentOrganization } = useOrganization();
+
+    // Modal state
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [newProjectName, setNewProjectName] = useState("");
+    const [newProjectDesc, setNewProjectDesc] = useState("");
+    const [isCreating, setIsCreating] = useState(false);
 
     // Fetch projects from API
-    const fetchProjects = async () => {
+    const fetchProjects = useCallback(async () => {
+        if (!currentOrganization) {
+            setProjects([]);
+            setIsLoading(false);
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
 
         try {
             const response = await ProjectAPI.getAll({
                 limit: 50,
-                status: "ACTIVE"
             });
 
             console.log("Projects API response:", response);
+            console.log("Current Org ID:", currentOrganization?.id);
 
-            if (response.success && response.data?.projects) {
+            if (response.success && Array.isArray(response.data)) {
                 // Map API projects to UI format
-                const uiProjects = response.data.projects.map(project =>
+                const uiProjects = response.data.map((project: APIProject) =>
                     mapProjectToUI(project, project._count?.members || 0)
                 );
+                console.log("Mapped UI Projects:", uiProjects);
                 setProjects(uiProjects);
             } else if (response.success) {
-                // Success but no projects array - set empty
-                console.warn("API returned success but no projects array:", response);
+                console.warn("API returned success but data is not an array:", response.data);
                 setProjects([]);
             }
         } catch (err) {
@@ -237,12 +277,77 @@ const Projects: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [currentOrganization]);
 
-    // Initial load
+    // Initial load and on org change
     useEffect(() => {
         fetchProjects();
-    }, []);
+    }, [fetchProjects]);
+
+    // Create Project Handler
+    const handleCreateProject = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newProjectName.trim()) {
+            setError("Project name is required");
+            return;
+        }
+
+        try {
+            setIsCreating(true);
+            setError(null);
+
+            const response = await ProjectAPI.create({
+                name: newProjectName.trim(),
+                description: newProjectDesc.trim(),
+                visibility: "PRIVATE"
+            });
+
+            if (response.success && response.data) {
+                const newProjectUI = mapProjectToUI(response.data as APIProject, 1);
+                setProjects(prev => [newProjectUI, ...prev]);
+
+                // Reset form
+                setNewProjectName("");
+                setNewProjectDesc("");
+                setShowCreateModal(false);
+            }
+        } catch (err) {
+            console.error("Failed to create project:", err);
+            setError(err instanceof Error ? err.message : "Failed to create project");
+        } finally {
+            setIsCreating(false);
+        }
+    };
+
+    // Archive Project Handler
+    const handleArchiveProject = async (id: string) => {
+        try {
+            const response = await ProjectAPI.archive(id);
+            if (response.success) {
+                setProjects(prev => prev.map(p =>
+                    p.id === id ? { ...p, status: "ARCHIVED", deadline: "Archived" } : p
+                ));
+            }
+        } catch (err) {
+            console.error("Failed to archive project:", err);
+            alert(err instanceof Error ? err.message : "Failed to archive project");
+        }
+    };
+
+    // Delete Project Handler
+    const handleDeleteProject = async (id: string) => {
+        if (!confirm("Are you sure you want to delete this project? This action cannot be undone.")) return;
+
+        try {
+            const response = await ProjectAPI.delete(id);
+            if (response.success) {
+                setProjects(prev => prev.filter(p => p.id !== id));
+            }
+        } catch (err) {
+            console.error("Failed to delete project:", err);
+            alert(err instanceof Error ? err.message : "Failed to delete project");
+        }
+    };
 
     // Filter projects by search
     const filteredProjects = projects.filter(p =>
@@ -258,7 +363,10 @@ const Projects: React.FC = () => {
                     <p className="text-sm text-gray-500 mt-1 font-medium">Overview of projects you are currently leading or part of.</p>
                 </div>
 
-                <button className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded text-sm font-bold transition-all self-start md:self-auto">
+                <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded text-sm font-bold transition-all self-start md:self-auto"
+                >
                     <Plus className="w-4 h-4" />
                     <span>New Project</span>
                 </button>
@@ -316,7 +424,12 @@ const Projects: React.FC = () => {
             {!isLoading && !error && (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {filteredProjects.map((project) => (
-                        <ProjectCard key={project.id} project={project} />
+                        <ProjectCard
+                            key={project.id}
+                            project={project}
+                            onArchive={handleArchiveProject}
+                            onDelete={handleDeleteProject}
+                        />
                     ))}
                 </div>
             )}
@@ -330,6 +443,91 @@ const Projects: React.FC = () => {
                     </p>
                 </div>
             )}
+
+            {/* Create Project Modal */}
+            <Modal
+                isOpen={showCreateModal}
+                onClose={() => {
+                    setShowCreateModal(false);
+                    setError(null);
+                }}
+                className="max-w-lg"
+            >
+                <div className="p-8">
+                    <div className="flex items-center gap-4 mb-8">
+                        <div className="w-12 h-12 bg-brand-500/10 rounded-xl flex items-center justify-center">
+                            <Briefcase className="w-6 h-6 text-brand-500" />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white mt-4">Create New Project</h2>
+                            <p className="text-sm text-gray-500 font-medium">Add a new workspace to your organization</p>
+                        </div>
+                    </div>
+
+                    <form onSubmit={handleCreateProject} className="space-y-6">
+                        {error && (
+                            <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded text-red-500 text-xs font-bold uppercase tracking-wider">
+                                <AlertCircle className="w-4 h-4" />
+                                <span>{error}</span>
+                            </div>
+                        )}
+
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                                Project Name
+                            </label>
+                            <input
+                                type="text"
+                                value={newProjectName}
+                                onChange={(e) => setNewProjectName(e.target.value)}
+                                placeholder="e.g. Q1 Marketing Campaign"
+                                className="w-full bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5 rounded py-3 px-4 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-brand-500/50 transition-all"
+                                disabled={isCreating}
+                                required
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                                Description
+                            </label>
+                            <textarea
+                                value={newProjectDesc}
+                                onChange={(e) => setNewProjectDesc(e.target.value)}
+                                placeholder="What is this project about?"
+                                rows={4}
+                                className="w-full bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5 rounded py-3 px-4 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-brand-500/50 transition-all resize-none"
+                                disabled={isCreating}
+                            />
+                        </div>
+
+                        <div className="flex gap-3 pt-4">
+                            <button
+                                type="button"
+                                onClick={() => setShowCreateModal(false)}
+                                className="flex-1 py-3 border border-gray-200 dark:border-white/10 rounded text-xs font-bold text-gray-500 uppercase tracking-widest hover:bg-gray-50 dark:hover:bg-white/5 transition-all"
+                                disabled={isCreating}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                className="flex-1 py-3 bg-brand-500 hover:bg-brand-600 rounded text-xs font-bold text-white uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                                disabled={isCreating}
+                            >
+                                {isCreating ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span>Creating...</span>
+                                    </>
+                                ) : (
+                                    <span>Create Project</span>
+                                )}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </Modal>
         </div>
     );
 };

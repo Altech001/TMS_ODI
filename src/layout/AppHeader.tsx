@@ -4,6 +4,7 @@ import { useFullscreen } from 'react-haiku';
 import { FullscreenIcon, Minimize } from "lucide-react";
 import { Link } from "react-router";
 import { ThemeToggleButton } from "../components/common/ThemeToggleButton";
+import NotificationDropdown from "../components/header/NotificationDropdown";
 import { useSidebar } from "../context/SidebarContext";
 
 // Hamburger Menu Icon Component
@@ -185,6 +186,7 @@ const AppHeader: React.FC = () => {
                 <FullscreenIcon />
               )}
             </button>
+            <NotificationDropdown />
             {/* Dark Mode Toggler */}
             <ThemeToggleButton />
 

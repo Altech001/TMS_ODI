@@ -16,6 +16,15 @@ export interface Organization {
     id: string;
     name: string;
     role: "OWNER" | "ADMIN" | "MANAGER" | "MEMBER" | "VIEWER";
+    createdAt?: string;
+    updatedAt?: string;
+    ownerId?: string;
+    members?: OrganizationMember[];
+    owner?: {
+        id: string;
+        name: string;
+        email: string;
+    };
 }
 
 export interface Tokens {
@@ -91,15 +100,25 @@ interface RequestOptions extends RequestInit {
     skipOrgHeader?: boolean; // Skip organization header for auth endpoints
 }
 
+// API client configuration
+export const apiClient = {
+    getOrganizationId: () => {
+        const id = localStorage.getItem("currentOrganizationId");
+        if (id) return id;
+        
+        // Fallback to first organization if no specific ID is set
+        const orgs = TokenManager.getOrganizations();
+        return orgs[0]?.id || (orgs[0] as any)?._id || null;
+    },
+    setOrganizationId: (id: string) => localStorage.setItem("currentOrganizationId", id),
+};
+
 async function apiRequest<T>(
     endpoint: string,
     options: RequestOptions = {}
 ): Promise<T> {
     const token = TokenManager.getAccessToken();
-    const organizations = TokenManager.getOrganizations();
-    // Handle both id and _id variations for organization ID
-    const currentOrg = organizations[0];
-    const currentOrgId = currentOrg ? (currentOrg.id || (currentOrg as any)._id) : null;
+    const currentOrgId = apiClient.getOrganizationId();
     
     const { skipOrgHeader, ...fetchOptions } = options;
     
@@ -123,6 +142,7 @@ async function apiRequest<T>(
     const data = await response.json();
 
     if (!response.ok) {
+        console.error(`[API Error] ${method} ${endpoint}:`, data);
         throw new Error(data.message || "An error occurred");
     }
 
@@ -222,6 +242,28 @@ export interface OrganizationInvite {
         id: string;
         name: string;
     };
+}
+
+export interface AuditLog {
+    id: string;
+    organizationId: string;
+    userId: string;
+    user?: {
+        name: string;
+        email: string;
+    };
+    module: string;
+    action: string;
+    resourceId?: string;
+    ipAddress?: string;
+    userAgent?: string;
+    createdAt: string;
+}
+
+export interface AuditLogResponse {
+    success: boolean;
+    data: AuditLog[];
+    message?: string;
 }
 
 export interface CreateOrganizationResponse {
@@ -529,27 +571,24 @@ export interface UpdateProjectRequest {
 
 export interface ProjectResponse {
     success: boolean;
-    data: {
-        project: Project;
-    };
+    data: Project;
     message?: string;
 }
 
 export interface ProjectListResponse {
     success: boolean;
-    data: {
-        projects: Project[];
+    data: Project[];
+    pagination?: {
         total: number;
         page: number;
         limit: number;
+        pages?: number;
     };
 }
 
 export interface ProjectMembersResponse {
     success: boolean;
-    data: {
-        members: ProjectMember[];
-    };
+    data: ProjectMember[];
 }
 
 export interface AddProjectMemberRequest {
@@ -727,19 +766,18 @@ export interface UpdateTaskRequest {
 
 export interface TaskResponse {
     success: boolean;
-    data: {
-        task: Task;
-    };
+    data: Task;
     message?: string;
 }
 
 export interface TaskListResponse {
     success: boolean;
-    data: {
-        tasks: Task[];
+    data: Task[];
+    pagination?: {
         total: number;
         page: number;
         limit: number;
+        pages?: number;
     };
 }
 
@@ -960,21 +998,20 @@ export interface UpdateExpenseRequest {
 
 export interface ExpenseResponse {
     success: boolean;
-    data: {
-        expense: Expense;
-    };
+    data: Expense;
     message?: string;
 }
 
 export interface ExpenseListResponse {
     success: boolean;
-    data: {
-        expenses: Expense[];
+    data: Expense[];
+    pagination?: {
         total: number;
         page: number;
         limit: number;
-        totalAmount?: number;
+        pages?: number;
     };
+    totalAmount?: number;
 }
 
 export interface ExpenseFilters {
@@ -1151,14 +1188,21 @@ export const ExpenseAPI = {
 
 export type PresenceStatus = "AVAILABLE" | "WORKING" | "BUSY" | "IN_MEETING" | "ON_BREAK" | "AT_LUNCH" | "AWAY" | "OFFLINE";
 
-export interface UserPresence {
+// Response from PATCH /presence/me and POST /presence/me/offline
+export interface PresenceRecord {
     id: string;
-    userId: string;
+    userId?: string;
+    organizationId?: string;
     status: PresenceStatus;
-    customMessage?: string;
-    lastActiveAt: string;
-    updatedAt: string;
-    user: {
+    startedAt: string;
+    endedAt?: string | null;
+}
+
+// For display with user info (org presence)
+export interface UserPresence extends PresenceRecord {
+    name?: string;
+    email?: string;
+    user?: {
         id: string;
         name: string;
         email: string;
@@ -1167,23 +1211,21 @@ export interface UserPresence {
 
 export interface PresenceHistory {
     id: string;
-    userId: string;
+    userId?: string;
     status: PresenceStatus;
     startedAt: string;
-    endedAt?: string;
-    duration?: number; // in minutes
+    endedAt?: string | null;
+    duration?: number; // in minutes (calculated from startedAt/endedAt if not provided)
 }
 
 export interface UpdatePresenceRequest {
     status: PresenceStatus;
-    customMessage?: string;
 }
 
+// Response from PATCH /presence/me
 export interface PresenceResponse {
     success: boolean;
-    data: {
-        presence: UserPresence;
-    };
+    data?: PresenceRecord;
     message?: string;
 }
 
@@ -1200,12 +1242,7 @@ export interface TeamPresenceResponse {
 
 export interface PresenceHistoryResponse {
     success: boolean;
-    data: {
-        history: PresenceHistory[];
-        total: number;
-        page: number;
-        limit: number;
-    };
+    data: PresenceHistory[];
 }
 
 // ==========================================
@@ -1228,16 +1265,16 @@ export const PresenceAPI = {
         });
     },
 
-    // Get team/organization presence
-    getTeamPresence: async (): Promise<TeamPresenceResponse> => {
-        return apiRequest<TeamPresenceResponse>("/presence/team", {
+    // Get organization-wide presence
+    getOrgPresence: async (): Promise<TeamPresenceResponse> => {
+        return apiRequest<TeamPresenceResponse>("/presence/org", {
             method: "GET",
         });
     },
 
-    // Get presence by user ID
+    // Get specific user's presence by ID
     getUserPresence: async (userId: string): Promise<PresenceResponse> => {
-        return apiRequest<PresenceResponse>(`/presence/user/${userId}`, {
+        return apiRequest<PresenceResponse>(`/presence/${userId}`, {
             method: "GET",
         });
     },
@@ -1280,11 +1317,10 @@ export const PresenceAPI = {
         });
     },
 
-    // Set status to offline (for logout/app close)
+    // Go offline (ends current presence, starts OFFLINE record)
     goOffline: async (): Promise<PresenceResponse> => {
-        return apiRequest<PresenceResponse>("/presence/me", {
-            method: "PATCH",
-            body: JSON.stringify({ status: "OFFLINE" }),
+        return apiRequest<PresenceResponse>("/presence/me/offline", {
+            method: "POST",
         });
     },
 
@@ -1303,6 +1339,7 @@ export const PresenceAPI = {
 
 export type NotificationType = 
     | "TASK_ASSIGNED"
+    | "TASK_UPDATED"
     | "TASK_COMPLETED"
     | "TASK_COMMENT"
     | "PROJECT_INVITE"
@@ -1334,27 +1371,27 @@ export interface Notification {
 
 export interface NotificationResponse {
     success: boolean;
-    data: {
-        notification: Notification;
-    };
+    data: Notification;
     message?: string;
 }
 
 export interface NotificationListResponse {
     success: boolean;
-    data: {
-        notifications: Notification[];
+    data: Notification[];
+    pagination: {
         total: number;
-        unreadCount: number;
         page: number;
         limit: number;
+        pages: number;
     };
+    unreadCount?: number; // Optional as per docs
 }
 
 export interface NotificationFilters {
     page?: number;
     limit?: number;
     isRead?: boolean;
+    unreadOnly?: boolean;
     type?: NotificationType;
 }
 
@@ -1369,6 +1406,7 @@ export const NotificationAPI = {
         if (filters?.page) queryParams.set("page", filters.page.toString());
         if (filters?.limit) queryParams.set("limit", filters.limit.toString());
         if (filters?.isRead !== undefined) queryParams.set("isRead", filters.isRead.toString());
+        if (filters?.unreadOnly !== undefined) queryParams.set("unreadOnly", filters.unreadOnly.toString());
         if (filters?.type) queryParams.set("type", filters.type);
         
         const queryString = queryParams.toString();
@@ -1407,7 +1445,7 @@ export const NotificationAPI = {
 
     // Delete all read notifications
     deleteAllRead: async (): Promise<{ success: boolean; data: { deleted: number }; message?: string }> => {
-        return apiRequest("/notifications/clear-read", {
+        return apiRequest("/notifications/read", {
             method: "DELETE",
         });
     },
@@ -1417,6 +1455,120 @@ export const NotificationAPI = {
         return apiRequest<NotificationResponse>(`/notifications/${notificationId}`, {
             method: "GET",
         });
+    },
+};
+
+// ==========================================
+// Personal Finance Module Types
+// ==========================================
+
+export interface PersonalAccount {
+    id: string;
+    userId: string;
+    name: string;
+    type: "CHECKING" | "SAVINGS" | "INVESTMENT" | "CREDIT_CARD" | "CASH" | "OTHER";
+    balance: number;
+    currency: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface PersonalCategory {
+    id: string;
+    userId: string;
+    name: string;
+    type: "INCOME" | "EXPENSE";
+    budget?: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface PersonalTransaction {
+    id: string;
+    userId: string;
+    accountId: string;
+    categoryId: string;
+    amount: number;
+    type: "INCOME" | "EXPENSE";
+    description: string;
+    date: string;
+    createdAt: string;
+    updatedAt: string;
+    account?: PersonalAccount;
+    category?: PersonalCategory;
+}
+
+export interface CreatePersonalAccountRequest {
+    name: string;
+    type: string;
+    balance: number;
+    currency?: string;
+}
+
+export interface CreatePersonalTransactionRequest {
+    accountId: string;
+    categoryId: string;
+    amount: number;
+    type: "INCOME" | "EXPENSE";
+    description: string;
+    date?: string;
+}
+
+export interface PersonalFinanceAPIResponse<T> {
+    success: boolean;
+    data: T;
+    message?: string;
+}
+
+// ==========================================
+// Personal Finance API
+// ==========================================
+
+export const PersonalFinanceAPI = {
+    // Accounts
+    getAccounts: async (): Promise<PersonalFinanceAPIResponse<PersonalAccount[]>> => {
+        return apiRequest("/personal-finance/accounts", { method: "GET" });
+    },
+    createAccount: async (data: CreatePersonalAccountRequest): Promise<PersonalFinanceAPIResponse<PersonalAccount>> => {
+        return apiRequest("/personal-finance/accounts", {
+            method: "POST",
+            body: JSON.stringify(data),
+        });
+    },
+    deleteAccount: async (accountId: string): Promise<PersonalFinanceAPIResponse<{ success: boolean }>> => {
+        return apiRequest(`/personal-finance/accounts/${accountId}`, { method: "DELETE" });
+    },
+
+    // Categories
+    getCategories: async (): Promise<PersonalFinanceAPIResponse<PersonalCategory[]>> => {
+        return apiRequest("/personal-finance/categories", { method: "GET" });
+    },
+
+    // Transactions
+    getTransactions: async (filters?: { accountId?: string; categoryId?: string; limit?: number }): Promise<PersonalFinanceAPIResponse<PersonalTransaction[]>> => {
+        const queryParams = new URLSearchParams();
+        if (filters?.accountId) queryParams.set("accountId", filters.accountId);
+        if (filters?.categoryId) queryParams.set("categoryId", filters.categoryId);
+        if (filters?.limit) queryParams.set("limit", filters.limit.toString());
+        
+        const queryString = queryParams.toString();
+        return apiRequest(`/personal-finance/transactions${queryString ? `?${queryString}` : ""}`, { method: "GET" });
+    },
+    createTransaction: async (data: CreatePersonalTransactionRequest): Promise<PersonalFinanceAPIResponse<PersonalTransaction>> => {
+        return apiRequest("/personal-finance/transactions", {
+            method: "POST",
+            body: JSON.stringify(data),
+        });
+    },
+};
+
+// ==========================================
+// Audit Logs API
+// ==========================================
+
+export const AuditLogAPI = {
+    getLogs: async (): Promise<AuditLogResponse> => {
+        return apiRequest<AuditLogResponse>("/audit", { method: "GET" });
     },
 };
 

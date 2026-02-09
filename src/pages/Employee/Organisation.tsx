@@ -1,6 +1,5 @@
 import {
     AlertCircle,
-    ArrowRight,
     Building2,
     CheckCircle,
     ChevronDown,
@@ -21,11 +20,11 @@ import {
     X
 } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import { useOrganization } from "../../context/OrganizationContext";
 import {
     MembershipAPI,
     Organization,
     OrganizationAPI,
-    OrganizationDetails,
     OrganizationMember,
     Role,
     TokenManager
@@ -380,7 +379,7 @@ const CreateOrgModal: React.FC<{
 
 // Organization Switcher Dropdown
 const OrgSwitcher: React.FC<{
-    currentOrg: OrganizationDetails | null;
+    currentOrg: Organization | null;
     organizations: Organization[];
     onSwitch: (orgId: string) => void;
     onCreateNew: () => void;
@@ -559,8 +558,14 @@ const SuccessToast: React.FC<{ message: string; onClose: () => void }> = ({ mess
 const Organisation: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState("");
     const [members, setMembers] = useState<MemberUI[]>([]);
-    const [organization, setOrganization] = useState<OrganizationDetails | null>(null);
-    const [organizations, setOrganizations] = useState<Organization[]>([]);
+    const {
+        currentOrganization,
+        organizations,
+        switchOrganization,
+        createOrganization,
+        refreshCurrentOrganization
+    } = useOrganization();
+
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -574,34 +579,33 @@ const Organisation: React.FC = () => {
     // Check if current user is owner (for permissions)
     const isOwner = true; // TODO: Get from auth context
 
-    // Fetch organization data from API
-    const fetchOrganizationData = async () => {
+    // Fetch members for the current organization
+    const fetchMembersData = async () => {
         setIsLoading(true);
         setError(null);
 
         try {
-            // Fetch organization details with members
-            const response = await OrganizationAPI.getCurrent();
-            console.log("Organization API response:", response);
-
+            const response = await OrganizationAPI.getMembers();
             if (response.success && response.data) {
-                // API returns organization data directly on response.data
-                const { members, owner, ...orgData } = response.data;
-                setOrganization(orgData);
-
-                // Map members to UI format
-                if (members) {
-                    const uiMembers = members.map(mapMemberToUI);
-                    setMembers(uiMembers);
+                const memberList = (response.data as any).members || response.data;
+                if (Array.isArray(memberList)) {
+                    setMembers(memberList.map(mapMemberToUI));
                 }
             }
         } catch (err) {
-            console.error("Failed to fetch organization:", err);
-            setError(err instanceof Error ? err.message : "Failed to load organization");
+            console.error("Failed to fetch members:", err);
+            setError(err instanceof Error ? err.message : "Failed to load members");
         } finally {
             setIsLoading(false);
         }
     };
+
+    // Reload members when organization changes
+    useEffect(() => {
+        if (currentOrganization?.id) {
+            fetchMembersData();
+        }
+    }, [currentOrganization?.id]);
 
     // Invite new member
     const handleInvite = async (email: string, role: Exclude<Role, "OWNER">) => {
@@ -613,7 +617,7 @@ const Organisation: React.FC = () => {
             if (response.success) {
                 setSuccessMessage(`Invitation sent to ${email}`);
                 // Refresh members list
-                await fetchOrganizationData();
+                await fetchMembersData();
             }
         } finally {
             setIsInviting(false);
@@ -660,16 +664,9 @@ const Organisation: React.FC = () => {
     const handleCreateOrg = async (name: string) => {
         setIsCreatingOrg(true);
         try {
-            const response = await OrganizationAPI.create(name);
-            console.log("Create org response:", response);
-
-            if (response.success) {
+            const newOrg = await createOrganization(name);
+            if (newOrg) {
                 setSuccessMessage(`Organization "${name}" created successfully!`);
-                // Refresh organizations list
-                const updatedOrgs = TokenManager.getOrganizations();
-                setOrganizations(updatedOrgs);
-                // Reload to show new org (in real app, would switch to new org)
-                window.location.reload();
             }
         } finally {
             setIsCreatingOrg(false);
@@ -677,29 +674,16 @@ const Organisation: React.FC = () => {
     };
 
     // Switch organization
-    const handleSwitchOrg = (orgId: string) => {
-        // Update the organization context in TokenManager
-        const orgs = TokenManager.getOrganizations();
-        const selectedOrg = orgs.find(o => o.id === orgId);
-
-        if (selectedOrg) {
-            // Reorder so selected org is first (this is how current org is determined)
-            const reorderedOrgs = [selectedOrg, ...orgs.filter(o => o.id !== orgId)];
-            TokenManager.setOrganizations(reorderedOrgs);
-
-            // Reload page to fetch new org data
-            window.location.reload();
-        }
+    const handleSwitchOrg = async (orgId: string) => {
+        await switchOrganization(orgId);
     };
 
     // Initial load
     useEffect(() => {
-        // Load organizations list from token manager
-        const orgs = TokenManager.getOrganizations();
-        setOrganizations(orgs);
-
-        fetchOrganizationData();
-    }, []);
+        if (!currentOrganization) {
+            refreshCurrentOrganization();
+        }
+    }, [currentOrganization, refreshCurrentOrganization]);
 
     const filteredMembers = members.filter(m =>
         m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -734,7 +718,7 @@ const Organisation: React.FC = () => {
                     <AlertCircle className="w-10 h-10 text-red-500 mb-3" />
                     <p className="text-red-500 font-bold text-sm mb-4">{error}</p>
                     <button
-                        onClick={fetchOrganizationData}
+                        onClick={fetchMembersData}
                         className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded transition-all"
                     >
                         <RefreshCw className="w-4 h-4" />
@@ -772,7 +756,7 @@ const Organisation: React.FC = () => {
             />
 
             {/* Header / Org Info */}
-            <div className="bg-gray-100 dark:bg-[#1C1C1C] p-8 relative">
+            <div className="bg-gray-100 dark:bg-[#1C1C1C] p-8 relative rounded-lg border border-gray-200 dark:border-white/5">
                 <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none select-none">
                     <Building2 className="w-48 h-48 text-gray-900 dark:text-white" />
                 </div>
@@ -785,10 +769,10 @@ const Organisation: React.FC = () => {
                             <Building2 className="w-10 h-10 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-3xl font-black text-gray-900 dark:text-white uppercase">
-                                {organization?.name || "Organization"}
+                            <h1 className="text-3xl font-black text-gray-900 dark:text-white uppercase leading-none">
+                                {currentOrganization?.name || "Organization"}
                             </h1>
-                            <div className="flex flex-wrap items-center gap-4 mt-2 text-gray-500 font-bold text-[12px] uppercase tracking-wider">
+                            <div className="flex flex-wrap items-center gap-4 mt-3 text-gray-500 font-bold text-[12px] uppercase tracking-wider">
                                 <div className="flex items-center gap-1.5">
                                     <MapPin className="w-3.5 h-3.5 text-brand-500" />
                                     <span>Headquarters: Kampala, Uganda</span>
@@ -802,33 +786,31 @@ const Organisation: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Right: Org Switcher + Badges */}
+                    {/* Right: Org Switcher + Actions */}
                     <div className="flex flex-wrap items-center gap-3">
-                        {/* Organization Switcher */}
                         <OrgSwitcher
-                            currentOrg={organization}
+                            currentOrg={currentOrganization}
                             organizations={organizations}
                             onSwitch={handleSwitchOrg}
                             onCreateNew={() => setShowCreateOrgModal(true)}
                         />
-
-                        <div className="flex items-center gap-2 bg-gray-200 dark:bg-[#2A2A2A] px-4 py-2 rounded-full border border-gray-300 dark:border-white/5">
-                            <Shield className="w-4 h-4 text-brand-500" />
-                            <span className="text-[12px] font-semibold text-gray-900 dark:text-white">Verified</span>
-                        </div>
-
                         <button
-                            onClick={fetchOrganizationData}
-                            className="p-2.5 text-gray-500 hover:text-brand-500 bg-white dark:bg-[#2A2A2A] hover:bg-gray-50 dark:hover:bg-white/10 rounded-lg border border-gray-200 dark:border-white/10 transition-colors"
-                            title="Refresh"
+                            onClick={fetchMembersData}
+                            disabled={isLoading}
+                            className="p-3 text-gray-500 hover:text-brand-500 bg-white dark:bg-[#2A2A2A] rounded-lg border border-gray-200 dark:border-white/10 transition-colors shadow-sm"
+                            title="Refresh Data"
                         >
-                            <RefreshCw className="w-4 h-4" />
+                            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                         </button>
+                        <div className="flex items-center gap-2 bg-gray-200/50 dark:bg-[#2A2A2A] px-4 py-2.5 rounded-lg border border-gray-300/30 dark:border-white/5">
+                            <Shield className="w-4 h-4 text-brand-500" />
+                            <span className="text-[12px] font-bold text-gray-900 dark:text-white uppercase tracking-tight">Verified</span>
+                        </div>
                     </div>
                 </div>
 
                 {/* Second Row: Search + Invite */}
-                <div className="relative z-10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-6">
+                <div className="relative z-10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
                     <div className="relative flex-1 max-w-md">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                         <input
@@ -836,45 +818,49 @@ const Organisation: React.FC = () => {
                             placeholder="Search members by name, role, or email..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-white dark:bg-[#2A2A2A] border border-gray-200 dark:border-white/10 rounded-lg py-3 pl-11 pr-4 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-brand-500 transition-all font-medium placeholder:text-gray-400"
+                            className="w-full bg-white dark:bg-[#2A2A2A] border border-gray-200 dark:border-white/10 rounded-lg py-3.5 pl-11 pr-4 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-brand-500 transition-all font-medium placeholder:text-gray-400 shadow-sm"
                         />
                     </div>
                     <button
                         onClick={() => setShowInviteModal(true)}
-                        className="flex items-center justify-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-5 py-3 rounded-lg text-sm font-bold transition-all whitespace-nowrap"
+                        className="flex items-center justify-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-6 py-3.5 rounded-lg text-sm font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-lg shadow-brand-500/20"
                     >
                         <UserPlus className="w-4 h-4" />
                         Invite Member
                     </button>
                 </div>
-
-                {/* Stats Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {[
-                        { label: "Total Members", value: members.length, color: "brand" },
-                        { label: "Administrators", value: members.filter(m => m.role === "ADMIN" || m.role === "OWNER").length, color: "purple" },
-                        { label: "Managers", value: members.filter(m => m.role === "MANAGER").length, color: "amber" },
-                        { label: "Team Members", value: members.filter(m => m.role === "MEMBER" || m.role === "VIEWER").length, color: "green" },
-                    ].map((stat, i) => (
-                        <div
-                            key={i}
-                            className="bg-white dark:bg-[#1C1C1C] border border-gray-200 dark:border-white/5 rounded-lg p-4"
-                        >
-                            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">{stat.label}</p>
-                            <p className="text-2xl font-black text-gray-900 dark:text-white mt-1">{stat.value}</p>
-                        </div>
-                    ))}
-                </div>
-
-
             </div>
+
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                    { label: "Total Members", value: members.length },
+                    { label: "Administrators", value: members.filter(m => m.role === "ADMIN" || m.role === "OWNER").length },
+                    { label: "Managers", value: members.filter(m => m.role === "MANAGER").length },
+                    { label: "Team Members", value: members.filter(m => m.role === "MEMBER" || m.role === "VIEWER").length },
+                ].map((stat, i) => (
+                    <div
+                        key={i}
+                        className="bg-white dark:bg-[#1C1C1C] border border-gray-200 dark:border-white/5 rounded-lg p-6 shadow-sm group hover:border-brand-500/30 transition-all"
+                    >
+                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest group-hover:text-brand-500 transition-colors">{stat.label}</p>
+                        <p className="text-3xl font-black text-gray-900 dark:text-white mt-1 uppercase tracking-tight">{stat.value}</p>
+                    </div>
+                ))}
+            </div>
+
             {/* Members Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {sortedMembers.map((member) => (
-                    <div key={member.id} className="bg-white dark:bg-[#1C1C1C] p-6 hover:border-brand-500/30 transition-all group relative overflow-hidden border border-gray-200 dark:border-transparent rounded-lg">
+                    <div key={member.id} className="bg-white dark:bg-[#1C1C1C] p-6 hover:border-brand-500/30 transition-all group relative overflow-hidden border border-gray-200 dark:border-white/5 rounded-lg shadow-sm">
+                        {/* Status Bar */}
+                        <div className={`absolute top-0 left-0 w-full h-1 ${member.status === 'ACTIVE' ? 'bg-green-500' :
+                            member.status === 'OFFLINE' ? 'bg-gray-500' : 'bg-orange-500'
+                            } opacity-40`}></div>
+
                         {/* Owner Badge */}
                         {member.role === "OWNER" && (
-                            <div className="absolute top-3 right-3 flex items-center gap-1 bg-amber-500/10 text-amber-500 px-2 py-1 rounded text-[10px] font-bold uppercase">
+                            <div className="absolute top-3 right-12 flex items-center gap-1 bg-amber-500/10 text-amber-500 px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-tighter">
                                 <Crown className="w-3 h-3" />
                                 Owner
                             </div>
@@ -890,62 +876,60 @@ const Organisation: React.FC = () => {
                             />
                         </div>
 
-                        {/* Status Bar */}
-                        <div className={`absolute top-0 left-0 w-full h-1 ${member.status === 'ACTIVE' ? 'bg-green-500' :
-                            member.status === 'OFFLINE' ? 'bg-gray-700' : 'bg-orange-500'
-                            } opacity-40`}></div>
-
-                        <div className="flex items-start justify-between mb-6">
-                            <div className="flex items-center gap-4">
-                                <div className="w-14 h-14 rounded-full bg-gray-50 dark:bg-[#2A2A2A] flex items-center justify-center border border-gray-200 dark:border-white/5 relative">
-                                    <User className="w-7 h-7" />
-                                    {/* Status Indicator */}
-                                    <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white dark:border-[#1C1C1C] ${member.status === 'ACTIVE' ? 'bg-green-500' :
-                                        member.status === 'OFFLINE' ? 'bg-gray-500' : 'bg-orange-500'
-                                        }`}></div>
-                                </div>
-                                <div>
-                                    <h3 className="text-base font-black text-gray-900 dark:text-white leading-tight">{member.name}</h3>
-                                    <p className="text-[11px] font-bold text-brand-500 uppercase mt-1">{member.roleDisplay}</p>
+                        <div className="flex items-start gap-4 mb-6">
+                            <div className="w-16 h-16 rounded-2xl bg-gray-50 dark:bg-[#2A2A2A] flex items-center justify-center border border-gray-200 dark:border-white/5 relative flex-shrink-0 group-hover:scale-105 transition-transform">
+                                <User className="w-8 h-8 text-gray-400" />
+                                {/* Status Indicator */}
+                                <div className={`absolute -bottom-1 -right-1 w-4.5 h-4.5 rounded-full border-4 border-white dark:border-[#1C1C1C] ${member.status === 'ACTIVE' ? 'bg-green-500' :
+                                    member.status === 'OFFLINE' ? 'bg-gray-500' : 'bg-orange-500'
+                                    }`}></div>
+                            </div>
+                            <div className="min-w-0">
+                                <h3 className="text-lg font-black text-gray-900 dark:text-white leading-tight truncate uppercase tracking-tight">{member.name}</h3>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <Shield className="w-3 h-3 text-brand-500" />
+                                    <p className="text-[11px] font-black text-brand-500 uppercase tracking-wider">{member.roleDisplay}</p>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="space-y-3">
-                            <div className="flex items-center gap-3 text-xs text-gray-500 font-medium">
-                                <div className="w-7 h-7 rounded bg-gray-100 dark:bg-white/5 flex items-center justify-center text-brand-500/60">
-                                    <Mail className="w-3.5 h-3.5" />
-                                </div>
-                                <span className="truncate">{member.email}</span>
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-3 text-xs text-gray-500 font-bold bg-gray-50 dark:bg-white/5 p-3 rounded-lg border border-gray-100 dark:border-white/5">
+                                <Mail className="w-4 h-4 text-brand-500/70" />
+                                <span className="truncate lowercase">{member.email}</span>
                             </div>
-                        </div>
 
-                        <div className="mt-8 pt-6 border-t border-gray-200 dark:border-white/5 flex items-center justify-between">
-                            <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${member.role === "OWNER" ? "bg-amber-500/10 text-amber-500" :
-                                member.role === "ADMIN" ? "bg-purple-500/10 text-purple-500" :
-                                    member.role === "MANAGER" ? "bg-blue-500/10 text-blue-500" :
-                                        "bg-gray-500/10 text-gray-500"
-                                }`}>
-                                {member.role}
-                            </span>
-                            {/* <button className="text-[12px] font-semibold text-brand-400 hover:text-brand-300 transition-colors flex items-center gap-1.5">
-                                View Profile
-                                <ArrowRight className="w-3 h-3" />
-                            </button> */}
+                            <div className="flex items-center justify-between pt-2">
+                                <div className="flex flex-col">
+                                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Joined</span>
+                                    <span className="text-[11px] font-bold text-gray-900 dark:text-white uppercase tracking-tight">
+                                        {new Date(member.joinedAt).toLocaleDateString()}
+                                    </span>
+                                </div>
+                                <span className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-lg ${member.role === "OWNER" ? "bg-amber-500/10 text-amber-500" :
+                                    member.role === "ADMIN" ? "bg-purple-500/10 text-purple-500" :
+                                        member.role === "MANAGER" ? "bg-blue-500/10 text-blue-500" :
+                                            "bg-gray-500/10 text-gray-500"
+                                    }`}>
+                                    {member.role}
+                                </span>
+                            </div>
                         </div>
                     </div>
                 ))}
 
                 {sortedMembers.length === 0 && (
-                    <div className="col-span-full py-20 bg-white dark:bg-[#1C1C1C] border border-dashed border-gray-300 dark:border-white/10 rounded-lg flex flex-col items-center justify-center text-center">
-                        <Users className="w-12 h-12 text-gray-700 mb-4" />
-                        <h3 className="text-gray-900 dark:text-white font-bold uppercase">No members found</h3>
-                        <p className="text-gray-600 text-xs mt-2">Try adjusting your search terms or invite new members</p>
+                    <div className="col-span-full py-24 bg-white dark:bg-[#1C1C1C] border-2 border-dashed border-gray-200 dark:border-white/5 rounded-2xl flex flex-col items-center justify-center text-center shadow-inner">
+                        <div className="w-20 h-20 bg-gray-50 dark:bg-white/5 rounded-full flex items-center justify-center mb-6">
+                            <Users className="w-10 h-10 text-gray-300 dark:text-white/10" />
+                        </div>
+                        <h3 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-tight">No members found</h3>
+                        <p className="text-gray-500 text-sm mt-2 max-w-xs font-medium">Try adjusting your search terms or invite new members to this organization.</p>
                         <button
                             onClick={() => setShowInviteModal(true)}
-                            className="mt-4 flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-none text-sm font-bold transition-all"
+                            className="mt-8 flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-8 py-4 rounded-xl text-sm font-black uppercase tracking-widest transition-all shadow-lg shadow-brand-500/30 active:scale-95"
                         >
-                            <UserPlus className="w-4 h-4" />
+                            <UserPlus className="w-5 h-5" />
                             Invite Member
                         </button>
                     </div>

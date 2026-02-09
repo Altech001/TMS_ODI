@@ -1,6 +1,9 @@
 import { Route, BrowserRouter as Router, Routes } from "react-router";
 import { ScrollToTop } from "./components/common/ScrollToTop";
 import { AuthProvider } from "./context/AuthContext";
+import { PresenceProvider } from "./context/PresenceContext";
+import { NotificationProvider } from "./context/NotificationContext";
+import { OrganizationProvider } from "./context/OrganizationContext";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import AppLayout from "./layout/AppLayout";
 import ResetPasswordPage from "./pages/AuthPages/ResetPassword";
@@ -19,10 +22,12 @@ import BarChart from "./pages/Charts/BarChart";
 import EmployeeDashboard from "./pages/Employee/Dashboard";
 import Expense from "./pages/Employee/Expense";
 import Organisation from "./pages/Employee/Organisation";
+import PersonalFinance from "./pages/Employee/PerFinance";
 import Planner from "./pages/Employee/Planner";
 import Presence from "./pages/Employee/Presence";
 import Projects from "./pages/Employee/Projects";
 import Tasks from "./pages/Employee/Tasks";
+import Settings from "./pages/Settings";
 import FormElements from "./pages/Forms/FormElements";
 import NotFound from "./pages/OtherPage/NotFound";
 import Unauthorized from "./pages/OtherPage/Unauthorized";
@@ -45,7 +50,13 @@ export default function App() {
           {/* Protected Dashboard Layout */}
           <Route element={
             <ProtectedRoute>
-              <AppLayout />
+              <OrganizationProvider>
+                <PresenceProvider>
+                  <NotificationProvider>
+                    <AppLayout />
+                  </NotificationProvider>
+                </PresenceProvider>
+              </OrganizationProvider>
             </ProtectedRoute>
           }>
             {/* Dashboard - All authenticated users */}
@@ -57,6 +68,7 @@ export default function App() {
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/blank" element={<Blank />} />
             <Route path="/organisation" element={<Organisation />} />
+            <Route path="/settings" element={<Settings />} />
 
             {/* Forms & Tables - All authenticated users */}
             <Route path="/form-elements" element={<FormElements />} />
@@ -91,6 +103,11 @@ export default function App() {
             <Route path="/planner" element={
               <ProtectedRoute allowedRoles={["OWNER", "ADMIN", "MANAGER", "MEMBER"]}>
                 <Planner />
+              </ProtectedRoute>
+            } />
+            <Route path="/personal-finance" element={
+              <ProtectedRoute allowedRoles={["OWNER", "ADMIN", "MANAGER", "MEMBER", "VIEWER"]}>
+                <PersonalFinance />
               </ProtectedRoute>
             } />
 

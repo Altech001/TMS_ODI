@@ -14,7 +14,9 @@ import React, { useEffect, useState, useMemo } from "react";
 import Chart from "react-apexcharts";
 import ActivityTimeline from "../../components/Employee/ActivityTimeline";
 import { useAuth } from "../../context/AuthContext";
-import { PresenceAPI, TaskAPI, Task, PresenceStatus } from "../../services/api";
+import { useOrganization } from "../../context/OrganizationContext";
+import { TaskAPI, Task, PresenceStatus, NotificationAPI, Notification } from "../../services/api";
+import { usePresence } from "../../context/PresenceContext";
 
 // Types
 interface ActivityItem {
@@ -105,91 +107,102 @@ const AllocationChart: React.FC<{ series: { name: string; data: number[] }[] }> 
     return <Chart options={options} series={series} type="bar" height={250} />;
 };
 
+const DashboardSkeleton: React.FC = () => (
+    <div className="min-h-screen animate-pulse space-y-8 pb-10">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2">
+                <div className="h-7 w-64 bg-gray-200 dark:bg-white/5 rounded-md"></div>
+                <div className="h-4 w-48 bg-gray-100 dark:bg-white/5 rounded-md"></div>
+            </div>
+            <div className="flex items-center gap-4">
+                <div className="h-10 w-32 bg-gray-200 dark:bg-white/5 rounded-md"></div>
+                <div className="h-10 w-40 bg-gray-100 dark:bg-white/5 rounded-md"></div>
+            </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+            <div className="xl:col-span-2 space-y-8">
+                <div className="h-48 bg-gray-100 dark:bg-white/5 rounded-md"></div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="h-24 bg-gray-100 dark:bg-white/5 rounded-md"></div>
+                    <div className="h-24 bg-gray-100 dark:bg-white/5 rounded-md"></div>
+                    <div className="h-24 bg-gray-100 dark:bg-white/5 rounded-md"></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="h-64 bg-gray-100 dark:bg-white/5 rounded-md"></div>
+                    <div className="h-64 bg-gray-100 dark:bg-white/5 rounded-md"></div>
+                </div>
+            </div>
+            <div className="h-[600px] bg-gray-100 dark:bg-white/5 rounded-md"></div>
+        </div>
+    </div>
+);
+
 const EmployeeDashboard: React.FC = () => {
     const { user } = useAuth();
-    const [status, setStatus] = useState<PresenceStatus>("OFFLINE");
-    const [seconds, setSeconds] = useState(0);
-    const [isCheckedIn, setIsCheckedIn] = useState(false);
+    const { currentOrganization, isSwitching } = useOrganization();
+    const {
+        currentStatus: status,
+        secondsElapsed: seconds,
+        updateStatus,
+        history: presenceHistory,
+        refreshMyPresence,
+        refreshMyHistory
+    } = usePresence();
+
     const [tasks, setTasks] = useState<Task[]>([]);
-    const [history, setHistory] = useState<any[]>([]);
+    const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const isCheckedIn = status !== "OFFLINE";
 
     useEffect(() => {
         const fetchInitialData = async () => {
-            setIsLoading(true);
-            console.log("Dashboard: Initialising data fetch...");
-
-            // Fetch Presence Status
-            try {
-                const presenceRes = await PresenceAPI.getMyStatus();
-                if (presenceRes.success && presenceRes.data?.presence) {
-                    const currentPresence = presenceRes.data.presence;
-                    setStatus(currentPresence.status as PresenceStatus);
-                    setIsCheckedIn(currentPresence.status !== "OFFLINE");
-
-                    if (currentPresence.status !== "OFFLINE" && currentPresence.updatedAt) {
-                        const lastUpdate = new Date(currentPresence.updatedAt).getTime();
-                        const now = new Date().getTime();
-                        const elapsed = Math.floor((now - lastUpdate) / 1000);
-                        setSeconds(elapsed > 0 ? elapsed : 0);
-                    }
-                }
-            } catch (err) {
-                console.error("Dashboard: Presence status fetch error:", err);
+            if (isSwitching || !currentOrganization) return;
+            // Only set loading on initial fetch, not on background refreshes
+            if (tasks.length === 0 && presenceHistory.length === 0) {
+                setIsLoading(true);
             }
 
-            // Fetch Tasks
             try {
-                const tasksRes = await TaskAPI.getMyTasks();
-                if (tasksRes.success && tasksRes.data?.tasks) {
-                    setTasks(tasksRes.data.tasks);
-                } else {
-                    console.warn("Dashboard: Tasks API returned success but no tasks array:", tasksRes);
-                }
+                await Promise.all([
+                    refreshMyPresence(),
+                    refreshMyHistory(),
+                    (async () => {
+                        const tasksRes = await TaskAPI.getAll({ limit: 100 });
+                        console.log("Dashboard: Tasks fetch result:", tasksRes);
+                        if (tasksRes.success && Array.isArray(tasksRes.data)) {
+                            setTasks(tasksRes.data);
+                        } else if (tasksRes.success && (tasksRes.data as any)?.tasks) {
+                            setTasks((tasksRes.data as any).tasks);
+                        }
+                    })(),
+                    (async () => {
+                        const notifRes = await NotificationAPI.getAll({ limit: 10 });
+                        if (notifRes.success && notifRes.data?.notifications) {
+                            setNotifications(notifRes.data.notifications);
+                        }
+                    })()
+                ]);
             } catch (err) {
-                console.error("Dashboard: Tasks fetch error (422 often means missing org context or invalid params):", err);
+                console.error("Dashboard: Data fetch error:", err);
+            } finally {
+                setIsLoading(false);
             }
-
-            // Fetch History
-            try {
-                const historyRes = await PresenceAPI.getMyHistory({ limit: 50 });
-                if (historyRes.success && historyRes.data?.history) {
-                    setHistory(historyRes.data.history);
-                }
-            } catch (err) {
-                console.error("Dashboard: Presence history fetch error:", err);
-            }
-
-            setIsLoading(false);
         };
 
         fetchInitialData();
-    }, []);
 
-    useEffect(() => {
-        let interval: ReturnType<typeof setInterval> | undefined;
-        if (status !== "OFFLINE" && isCheckedIn) {
-            interval = setInterval(() => {
-                setSeconds(prev => prev + 1);
-            }, 1000);
-        } else {
-            setSeconds(0);
-        }
-        return () => {
-            if (interval) clearInterval(interval);
-        };
-    }, [status, isCheckedIn]);
+        // Real-time refresh every 60 seconds
+        const refreshInterval = setInterval(() => {
+            fetchInitialData();
+        }, 60000);
+
+        return () => clearInterval(refreshInterval);
+    }, [currentOrganization?.id, isSwitching, refreshMyPresence, refreshMyHistory]);
+
 
     const handleStatusChange = async (newStatus: PresenceStatus) => {
-        try {
-            const res = await PresenceAPI.updateMyStatus({ status: newStatus });
-            if (res.success) {
-                setStatus(newStatus);
-                if (newStatus !== "OFFLINE") setIsCheckedIn(true);
-            }
-        } catch (err) {
-            console.error("Status update error:", err);
-        }
+        await updateStatus(newStatus);
     };
 
     const formatTime = (totalSeconds: number) => {
@@ -200,68 +213,114 @@ const EmployeeDashboard: React.FC = () => {
     };
 
     const taskStats = useMemo(() => {
+        const now = new Date();
         return {
             total: tasks.length,
-            overdue: tasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "COMPLETED").length,
+            overdue: tasks.filter(t => t.dueDate && new Date(t.dueDate) < now && t.status !== "COMPLETED").length,
             ongoing: tasks.filter(t => t.status === "IN_PROGRESS").length,
             completed: tasks.filter(t => t.status === "COMPLETED").length
         };
     }, [tasks]);
 
     const chartData = useMemo(() => {
-        // Performance Chart Logic (Placeholder integration)
-        // In a real scenario, we'd group tasks by day
+        // Performance Chart: Group by day for last 7 days
+        const today = new Date();
+        const last7Days = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date();
+            d.setDate(today.getDate() - (6 - i));
+            return d;
+        });
+
+        const completedData = last7Days.map(date => {
+            return tasks.filter(t =>
+                t.status === "COMPLETED" &&
+                t.completedAt &&
+                new Date(t.completedAt).toDateString() === date.toDateString()
+            ).length;
+        });
+
+        const plannedData = last7Days.map(date => {
+            return tasks.filter(t =>
+                new Date(t.createdAt).toDateString() === date.toDateString()
+            ).length;
+        });
+
         const performanceSeries = [
-            { name: "Completed Tasks", data: [taskStats.completed, 0, 0, 0, 0, 0, 0] },
-            { name: "Planned Tasks", data: [taskStats.total, 0, 0, 0, 0, 0, 0] }
+            { name: "Completed Tasks", data: completedData },
+            { name: "Planned Tasks", data: plannedData }
         ];
 
         // Allocation Chart Logic (Based on history)
         const statusMinutes = {
-            WORKING: 0,
-            ON_BREAK: 0,
-            AT_LUNCH: 0,
-            IN_MEETING: 0
+            WORK: 0,
+            BREAK: 0,
+            LUNCH: 0,
+            MEETING: 0
         };
 
-        history.forEach(item => {
-            if (item.duration && statusMinutes.hasOwnProperty(item.status)) {
-                statusMinutes[item.status as keyof typeof statusMinutes] += item.duration;
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+
+        presenceHistory.forEach(item => {
+            const itemDate = new Date(item.startedAt);
+            if (itemDate < weekAgo) return;
+
+            let duration = item.duration || 0;
+            if (!duration && item.endedAt) {
+                duration = Math.floor((new Date(item.endedAt).getTime() - itemDate.getTime()) / 60000);
+            }
+
+            if (duration <= 0) return;
+
+            // Map status to chart buckets
+            switch (item.status) {
+                case "WORKING":
+                case "AVAILABLE":
+                case "BUSY":
+                    statusMinutes.WORK += duration;
+                    break;
+                case "ON_BREAK":
+                    statusMinutes.BREAK += duration;
+                    break;
+                case "AT_LUNCH":
+                    statusMinutes.LUNCH += duration;
+                    break;
+                case "IN_MEETING":
+                    statusMinutes.MEETING += duration;
+                    break;
             }
         });
 
         const allocationSeries = [{
             name: "Hours Allocated",
             data: [
-                Math.round(statusMinutes.WORKING / 60),
-                Math.round(statusMinutes.ON_BREAK / 60),
-                Math.round(statusMinutes.AT_LUNCH / 60),
-                Math.round(statusMinutes.IN_MEETING / 60)
+                Math.round(statusMinutes.WORK / 60 * 10) / 10,
+                Math.round(statusMinutes.BREAK / 60 * 10) / 10,
+                Math.round(statusMinutes.LUNCH / 60 * 10) / 10,
+                Math.round(statusMinutes.MEETING / 60 * 10) / 10
             ]
         }];
 
         return { performanceSeries, allocationSeries };
-    }, [tasks, history, taskStats]);
+    }, [tasks, presenceHistory]);
 
-    const activities: ActivityItem[] = [
-        { id: "1", user: "Sarah Connor", action: "commented on", target: "Project Alpha UI", time: "12 mins ago", type: "comment" },
-        { id: "2", user: "You", action: "uploaded", target: "Expense_Receipt_04.pdf", time: "45 mins ago", type: "upload" },
-        { id: "3", user: "John Doe", action: "modified task", target: "API Integration", time: "2 hours ago", type: "task" },
-        { id: "4", user: "System", action: "commented on", target: "Sick Leave Request", time: "5 hours ago", type: "status" },
-        { id: "5", user: "Smith", action: "joined", target: "Design Team", time: "1 day ago", type: "status" },
-        { id: "6", user: "Altech", action: "pending", target: "Sick Leave Request", time: "5 hours ago", type: "status" },
-        { id: "7", user: "Alice", action: "approved", target: "Design Team", time: "1 day ago", type: "status" },
-    ];
+    const activities: ActivityItem[] = useMemo(() => {
+        if (notifications.length === 0) return [
+            { id: "1", user: "System", action: "welcome", target: "Start your day with ODI", time: "Just now", type: "status" }
+        ];
+
+        return notifications.map(n => ({
+            id: n.id,
+            user: n.title,
+            action: n.message.length > 30 ? n.message.substring(0, 30) + "..." : n.message,
+            target: "",
+            time: new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            type: n.type.toLowerCase().includes("comment") ? "comment" : "task"
+        }));
+    }, [notifications]);
 
     if (isLoading) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="w-10 h-10 border-4 border-brand-500/20 border-t-brand-500 rounded-full animate-spin"></div>
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Initialising Dashboard...</p>
-                </div>
-            </div>
-        );
+        return <DashboardSkeleton />;
     }
 
     return (
@@ -279,14 +338,14 @@ const EmployeeDashboard: React.FC = () => {
                         </span>
                         <div className="w-1 h-1 rounded-full bg-gray-300 dark:bg-white/10"></div>
                         <span className="text-[11px] font-bold text-red-500 uppercase tracking-widest">
-                            {taskStats.overdue} tasks due today
+                            {taskStats.ongoing} tasks ongoing
                         </span>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={() => setIsCheckedIn(!isCheckedIn)}
+                        onClick={() => updateStatus(isCheckedIn ? "OFFLINE" : "WORKING")}
                         className={`px-5 py-2.5 text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2 border ${isCheckedIn
                             ? "bg-green-500/10 text-green-500 border-green-500/20"
                             : "bg-brand-500 text-white border-brand-500 shadow-lg shadow-brand-500/20"

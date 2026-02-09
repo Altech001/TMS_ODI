@@ -36,13 +36,15 @@ const UserWidget: React.FC<UserWidgetProps> = ({ isExpanded }) => {
     };
 
     // Generate initials from name
-    const getInitials = (name: string): string => {
+    const getInitials = (name: string | undefined): string => {
         if (!name) return "U";
-        const parts = name.split(" ");
-        if (parts.length >= 2) {
-            return (parts[0][0] + parts[1][0]).toUpperCase();
-        }
-        return name.substring(0, 2).toUpperCase();
+        return name
+            .split(" ")
+            .filter(Boolean)
+            .map(word => word[0])
+            .join("")
+            .toUpperCase()
+            .slice(0, 2);
     };
 
     // Handle logout
@@ -90,7 +92,7 @@ const UserWidget: React.FC<UserWidgetProps> = ({ isExpanded }) => {
                         <Link
                             to="/profile"
                             onClick={() => setIsOpen(false)}
-                            className="flex items-center gap-3 px-3 py-2.5 text-xs font-semibold text-gray-400 hover:text-white  hover:text-brand-400 rounded-xl transition-all group"
+                            className="flex items-center gap-3 px-3 py-2.5 text-base text-gray-400 hover:text-white  hover:text-brand-400 rounded-xl transition-all group"
                         >
                             <User className="w-4 h-4" />
                             <span>Full Profile</span>
@@ -99,7 +101,7 @@ const UserWidget: React.FC<UserWidgetProps> = ({ isExpanded }) => {
                         <Link
                             to="/settings"
                             onClick={() => setIsOpen(false)}
-                            className="flex items-center gap-3 px-3 py-2.5 text-xs font-semibold text-gray-400 hover:text-white  hover:text-brand-400 rounded-xl transition-all group"
+                            className="flex items-center gap-3 px-3 py-2.5 text-base text-gray-400 hover:text-white  hover:text-brand-400 rounded-xl transition-all group"
                         >
                             <Settings className="w-4 h-4" />
                             <span>Account Settings</span>
@@ -109,10 +111,10 @@ const UserWidget: React.FC<UserWidgetProps> = ({ isExpanded }) => {
 
                         <button
                             onClick={handleLogout}
-                            className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold text-red-500/80 hover:text-red-500 hover:bg-red-500/10 rounded-none transition-all group"
+                            className="w-full flex items-center gap-3 px-3 py-2.5 text-base font-bold text-red-500/80 hover:text-red-500 hover:bg-red-500/10 rounded-none transition-all group"
                         >
                             <LogOut className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
-                            <span>Sign Out Account</span>
+                            <span>Sign Out</span>
                         </button>
                     </div>
                 </div>
@@ -127,7 +129,7 @@ const UserWidget: React.FC<UserWidgetProps> = ({ isExpanded }) => {
                     }`}
             >
                 <div className="relative flex-shrink-0">
-                    <div className="w-10 h-10 rounded-full bg-[#333333] flex items-center justify-center text-white text-[10px] font-black border border-white/10 group-hover:scale-105 transition-transform">
+                    <div className="w-10 h-10 rounded-full bg-[#333333] flex items-center justify-center text-white text-[10px] border border-white/10 group-hover:scale-105 transition-transform">
                         {avatar}
                     </div>
                     <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-[#1A1A1A] rounded-full"></span>
