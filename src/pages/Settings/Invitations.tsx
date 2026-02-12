@@ -1,16 +1,17 @@
-import React, { useEffect } from 'react';
-import { useOrganization } from '../../context/OrganizationContext';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
-    Mail,
-    Check,
-    X,
-    Loader2,
     AlertCircle,
     Building2,
-    Clock
+    Clock,
+    Loader2,
+    Mail,
+    X
 } from 'lucide-react';
-import Button from '../../components/ui/button/Button';
+import React, { useEffect } from 'react';
 import Select from '../../components/form/Select';
+import Button from '../../components/ui/button/Button';
+import { useOrganization } from '../../context/OrganizationContext';
 import { OrganizationInvite } from '../../services/api';
 
 const Invitations: React.FC = () => {

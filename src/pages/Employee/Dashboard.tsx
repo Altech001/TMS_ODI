@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ApexOptions } from "apexcharts";
 import {
     AlertCircle,
@@ -17,7 +19,6 @@ import { useAuth } from "../../context/AuthContext";
 import { useOrganization } from "../../context/OrganizationContext";
 import { usePresence } from "../../context/PresenceContext";
 import { Notification, NotificationAPI, PresenceStatus, Task, TaskAPI } from "../../services/api";
-import { useMutation, useQuery } from "@tanstack/react-query";
 
 // Types
 interface ActivityItem {
@@ -144,7 +145,6 @@ const EmployeeDashboard: React.FC = () => {
     const { currentOrganization, isSwitching } = useOrganization();
     const {
         currentStatus: status,
-        secondsElapsed: seconds,
         updateStatus,
         history: presenceHistory,
         refreshMyPresence,
@@ -202,12 +202,6 @@ const EmployeeDashboard: React.FC = () => {
         statusMutation.mutate(newStatus);
     };
 
-    const formatTime = (totalSeconds: number) => {
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const secs = totalSeconds % 60;
-        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    };
 
     const taskStats = useMemo(() => {
         const now = new Date();

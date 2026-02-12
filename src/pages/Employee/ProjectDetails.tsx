@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import Input from "@/components/form/input/InputField";
 import Label from "@/components/form/Label";
@@ -151,7 +152,7 @@ const ProjectDetails = () => {
         enabled: !!projectId && !!currentOrganization,
     });
 
-    const { data: tasks = [], isLoading: tasksLoading } = useQuery({
+    const { data: tasks = [] } = useQuery({
         queryKey: ["project-tasks", projectId],
         queryFn: async () => {
             const res = await TaskAPI.getAll({ projectId: projectId! });

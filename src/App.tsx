@@ -15,15 +15,17 @@ import SignIn from "./pages/AuthPages/SignIn";
 import SignUp from "./pages/AuthPages/SignUp";
 import VerifyEmail from "./pages/AuthPages/VerifyEmail";
 import Blank from "./pages/Blank";
-import Book from "./pages/Cashbooks/Book";
+import CashbookDetails from "./pages/Cashbooks/CashbookDetails";
+import CashbookMembers from "./pages/Cashbooks/CashbookMembers";
+import Cashbooks from "./pages/Cashbooks/Cashbooks";
 import EmployeeDashboard from "./pages/Employee/Dashboard";
 import Expense from "./pages/Employee/Expense";
 import Organisation from "./pages/Employee/Organisation";
 import PersonalFinance from "./pages/Employee/PerFinance";
 import Planner from "./pages/Employee/Planner";
 import Presence from "./pages/Employee/Presence";
-import Projects from "./pages/Employee/Projects";
 import ProjectDetails from "./pages/Employee/ProjectDetails";
+import Projects from "./pages/Employee/Projects";
 import Tasks from "./pages/Employee/Tasks";
 import HRDashboard from "./pages/HumanRs/Dashboard";
 import LeavesPerformance from "./pages/HumanRs/Leaves_petformance";
@@ -35,9 +37,6 @@ import Orgmgt from "./pages/SuperAdmin/Orgmgt";
 import SecurityAudit from "./pages/SuperAdmin/SecurityAudit";
 import UserDir from "./pages/SuperAdmin/UserDir";
 import UserProfiles from "./pages/UserProfiles";
-import Cashbooks from "./pages/Cashbooks/Cashbooks";
-import CashbookDetails from "./pages/Cashbooks/CashbookDetails";
-import CashbookMembers from "./pages/Cashbooks/CashbookMembers";
 
 export default function App() {
   return (

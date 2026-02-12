@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import DatePicker from "@/components/form/date-picker";
 import Checkbox from "@/components/form/input/Checkbox";
 import Input from "@/components/form/input/InputField";
 import Select from "@/components/form/Select";
@@ -9,12 +12,12 @@ import { useOrg } from "@/context/OrgContext";
 import { useToast } from "@/hooks/use-toast";
 import apiClient from "@/lib/api-client";
 import type { Cashbook, CashbookAccount, CashbookEntry, Contact } from "@/types";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
     ArrowLeft,
     ArrowRightLeft,
     Building2,
-    Calendar as CalendarIcon,
     ChevronDown,
     ChevronLeft,
     ChevronRight,
@@ -25,24 +28,19 @@ import {
     FileText,
     Info,
     Loader2,
+    LucideUsersRound,
     Minus,
     MoreHorizontal,
     Paperclip,
     Plus,
     RefreshCw,
     Search,
-    Settings,
     Trash2,
-    UserPlus,
-    Users,
-    LucideUsersRound,
     Wallet,
-    X,
+    X
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import DatePicker from "@/components/form/date-picker";
 
 const ITEMS_PER_PAGE = 15;
 
