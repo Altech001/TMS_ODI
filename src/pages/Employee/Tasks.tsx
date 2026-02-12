@@ -16,10 +16,19 @@ import {
     Search,
     Trash2
 } from "lucide-react";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState } from "react";
+import { useSearchParams } from "react-router";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useOrganization } from "../../context/OrganizationContext";
-import { Task as APITask, TaskAPI, TaskStatus, TaskPriority } from "../../services/api";
+import { Task as APITask, TaskAPI, TaskStatus, TaskPriority, CreateTaskRequest } from "../../services/api";
 import { Modal } from "../../components/ui/modal";
+import Select from "../../components/form/Select";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 
 // UI Types
 interface TaskUI {
@@ -85,22 +94,24 @@ const TaskCard = ({
                 >
                     <Trash2 className="w-3.5 h-3.5" />
                 </button>
-                <div className="relative group/menu">
-                    <button className="text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">
-                        <MoreHorizontal className="w-4 h-4" />
-                    </button>
-                    <div className="absolute right-0 top-full mt-1 hidden group-hover/menu:block bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5 rounded-lg shadow-xl z-10 w-32 py-1">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <button className="text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">
+                            <MoreHorizontal className="w-4 h-4" />
+                        </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-32 bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5 rounded-lg shadow-xl p-1">
                         {["TODO", "IN_PROGRESS", "IN_REVIEW", "COMPLETED"].map((s) => (
-                            <button
+                            <DropdownMenuItem
                                 key={s}
                                 onClick={() => onStatusUpdate?.(task.id, s as TaskStatus)}
-                                className={`w-full text-left px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-gray-100 dark:hover:bg-white/5 ${task.status === s ? 'text-brand-500' : 'text-gray-500'}`}
+                                className={`w-full text-left px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-colors ${task.status === s ? 'text-brand-500 bg-brand-500/5' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'}`}
                             >
                                 {s.replace('_', ' ')}
-                            </button>
+                            </DropdownMenuItem>
                         ))}
-                    </div>
-                </div>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
         </div>
 
@@ -147,104 +158,87 @@ const TaskCard = ({
 );
 
 const Tasks: React.FC = () => {
+    const queryClient = useQueryClient();
+    const [searchParams] = useSearchParams();
+    const filterProjectId = searchParams.get("projectId");
+
     const [view, setView] = useState<"kanban" | "list">("kanban");
     const [search, setSearch] = useState("");
-    const [tasks, setTasks] = useState<TaskUI[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const { currentOrganization } = useOrganization();
 
     // Modal state
-    const [showCreateModal, setShowCreateModal] = useState(false);
-    const [newTaskTitle, setNewTaskTitle] = useState("");
-    const [newTaskDesc, setNewTaskDesc] = useState("");
-    const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("MEDIUM");
-    const [isCreating, setIsCreating] = useState(false);
+    const [createModalOpen, setCreateModalOpen] = useState(false);
+    const [newTask, setNewTask] = useState({
+        title: "",
+        description: "",
+        priority: "MEDIUM" as TaskPriority,
+    });
 
     const columns: TaskStatus[] = ["TODO", "IN_PROGRESS", "IN_REVIEW", "COMPLETED", "BLOCKED", "CANCELLED"];
 
-    const fetchTasks = useCallback(async () => {
-        if (!currentOrganization) {
-            setTasks([]);
-            setIsLoading(false);
-            return;
-        }
-
-        setIsLoading(true);
-        setError(null);
-
-        try {
+    // Fetch tasks query
+    const {
+        data: tasks = [],
+        isLoading,
+        error: fetchError
+    } = useQuery({
+        queryKey: ["tasks", currentOrganization?.id, filterProjectId],
+        queryFn: async () => {
             const response = await TaskAPI.getAll({
                 limit: 100,
+                projectId: filterProjectId || undefined
             });
-
             if (response.success && Array.isArray(response.data)) {
-                setTasks(response.data.map(mapTaskToUI));
-            } else {
-                setTasks([]);
+                return response.data.map(mapTaskToUI);
             }
-        } catch (err) {
-            console.error("Failed to fetch tasks:", err);
-            setError(err instanceof Error ? err.message : "Failed to load tasks");
-        } finally {
-            setIsLoading(false);
+            return [];
+        },
+        enabled: !!currentOrganization,
+    });
+
+    // Create task mutation
+    const createMutation = useMutation({
+        mutationFn: (data: CreateTaskRequest) => TaskAPI.create(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tasks"] });
+            setCreateModalOpen(false);
+            setNewTask({ title: "", description: "", priority: "MEDIUM" });
         }
-    }, [currentOrganization]);
+    });
 
-    useEffect(() => {
-        fetchTasks();
-    }, [fetchTasks]);
+    // Update status mutation
+    const updateStatusMutation = useMutation({
+        mutationFn: ({ id, status }: { id: string; status: TaskStatus }) => TaskAPI.updateStatus(id, status),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tasks"] });
+        }
+    });
 
-    const handleCreateTask = async (e: React.FormEvent) => {
+    // Delete task mutation
+    const deleteMutation = useMutation({
+        mutationFn: (id: string) => TaskAPI.delete(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tasks"] });
+        }
+    });
+
+    const handleCreateTask = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newTaskTitle.trim()) return;
-
-        try {
-            setIsCreating(true);
-            const response = await TaskAPI.create({
-                title: newTaskTitle.trim(),
-                description: newTaskDesc.trim(),
-                priority: newTaskPriority,
-                status: "TODO"
-            });
-
-            if (response.success && response.data) {
-                const newUI = mapTaskToUI(response.data);
-                setTasks(prev => [newUI, ...prev]);
-                setShowCreateModal(false);
-                setNewTaskTitle("");
-                setNewTaskDesc("");
-                setNewTaskPriority("MEDIUM");
-            }
-        } catch (err) {
-            console.error("Failed to create task:", err);
-            setError(err instanceof Error ? err.message : "Failed to create task");
-        } finally {
-            setIsCreating(false);
-        }
+        if (!newTask.title.trim()) return;
+        createMutation.mutate({
+            ...newTask,
+            status: "TODO",
+            projectId: filterProjectId || undefined
+        });
     };
 
-    const handleUpdateStatus = async (id: string, status: TaskStatus) => {
-        try {
-            const response = await TaskAPI.updateStatus(id, status);
-            if (response.success) {
-                setTasks(prev => prev.map(t => t.id === id ? { ...t, status, progress: status === "COMPLETED" ? 100 : 50 } : t));
-            }
-        } catch (err) {
-            console.error("Failed to update task status:", err);
-        }
+    const handleUpdateStatus = (id: string, status: TaskStatus) => {
+        updateStatusMutation.mutate({ id, status });
     };
 
-    const handleDeleteTask = async (id: string) => {
+    const handleDeleteTask = (id: string) => {
         if (!confirm("Are you sure you want to delete this task?")) return;
-        try {
-            const response = await TaskAPI.delete(id);
-            if (response.success) {
-                setTasks(prev => prev.filter(t => t.id !== id));
-            }
-        } catch (err) {
-            console.error("Failed to delete task:", err);
-        }
+        deleteMutation.mutate(id);
     };
 
     const filteredTasks = tasks.filter(t =>
@@ -277,7 +271,7 @@ const Tasks: React.FC = () => {
                         </button>
                     </div>
                     <button
-                        onClick={() => setShowCreateModal(true)}
+                        onClick={() => setCreateModalOpen(true)}
                         className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded text-base transition-all font-bold"
                     >
                         <Plus className="w-4 h-4" />
@@ -315,12 +309,12 @@ const Tasks: React.FC = () => {
                     <Loader2 className="w-10 h-10 text-brand-500 animate-spin mb-4" />
                     <p className="text-sm text-gray-500 font-medium">Fetching your tasks...</p>
                 </div>
-            ) : error ? (
+            ) : fetchError ? (
                 <div className="flex flex-col items-center justify-center py-12 bg-red-500/5 border border-red-500/20 rounded">
                     <AlertCircle className="w-10 h-10 text-red-500 mb-3" />
-                    <p className="text-red-500 font-bold text-sm mb-4">{error}</p>
+                    <p className="text-red-500 font-bold text-sm mb-4">{(fetchError as Error).message}</p>
                     <button
-                        onClick={fetchTasks}
+                        onClick={() => queryClient.invalidateQueries({ queryKey: ["tasks"] })}
                         className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded transition-all"
                     >
                         <RefreshCw className="w-4 h-4" />
@@ -339,7 +333,7 @@ const Tasks: React.FC = () => {
                                     </span>
                                 </div>
                                 <button
-                                    onClick={() => setShowCreateModal(true)}
+                                    onClick={() => setCreateModalOpen(true)}
                                     className="text-gray-400 hover:text-brand-500 transition-colors"
                                 >
                                     <Plus className="w-3.5 h-3.5" />
@@ -366,7 +360,7 @@ const Tasks: React.FC = () => {
             ) : (
                 <div className="bg-white dark:bg-[#2A2A2A]/20 border border-gray-200 dark:border-white/5 rounded overflow-hidden">
                     <div className="overflow-x-auto no-scrollbar">
-                        <table className="w-full text-left border-collapse">
+                        <table className="w-screen text-left border-collapse">
                             <thead>
                                 <tr className="bg-gray-50 dark:bg-white/2 border-b border-gray-200 dark:border-white/5">
                                     <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Task Name</th>
@@ -436,10 +430,9 @@ const Tasks: React.FC = () => {
 
             {/* Create Task Modal */}
             <Modal
-                isOpen={showCreateModal}
+                isOpen={createModalOpen}
                 onClose={() => {
-                    setShowCreateModal(false);
-                    setError(null);
+                    setCreateModalOpen(false);
                 }}
                 className="max-w-xl"
             >
@@ -455,10 +448,10 @@ const Tasks: React.FC = () => {
                     </div>
 
                     <form onSubmit={handleCreateTask} className="space-y-8">
-                        {error && (
+                        {createMutation.isError && (
                             <div className="flex items-center gap-2 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-xs font-bold uppercase tracking-wider">
                                 <AlertCircle className="w-4 h-4" />
-                                <span>{error}</span>
+                                <span>{(createMutation.error as Error).message}</span>
                             </div>
                         )}
 
@@ -468,11 +461,11 @@ const Tasks: React.FC = () => {
                             </label>
                             <input
                                 type="text"
-                                value={newTaskTitle}
-                                onChange={(e) => setNewTaskTitle(e.target.value)}
+                                value={newTask.title}
+                                onChange={(e) => setNewTask(prev => ({ ...prev, title: e.target.value }))}
                                 placeholder="e.g. Design System Documentation"
                                 className="w-full bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5 rounded py-4 px-5 text-sm text-gray-900 dark:text-white placeholder:text-gray-500 focus:outline-none focus:border-brand-500/50 transition-all"
-                                disabled={isCreating}
+                                disabled={createMutation.isPending}
                                 required
                             />
                         </div>
@@ -482,12 +475,12 @@ const Tasks: React.FC = () => {
                                 Description
                             </label>
                             <textarea
-                                value={newTaskDesc}
-                                onChange={(e) => setNewTaskDesc(e.target.value)}
+                                value={newTask.description}
+                                onChange={(e) => setNewTask(prev => ({ ...prev, description: e.target.value }))}
                                 placeholder="What needs to be done?"
                                 rows={4}
                                 className="w-full bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5 rounded-xl py-4 px-5 text-sm text-gray-900 dark:text-white placeholder:text-gray-500 focus:outline-none focus:border-brand-500/50 transition-all resize-none font-medium leading-relaxed"
-                                disabled={isCreating}
+                                disabled={createMutation.isPending}
                             />
                         </div>
 
@@ -496,38 +489,36 @@ const Tasks: React.FC = () => {
                                 <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-500">
                                     Priority Level
                                 </label>
-                                <div className="relative">
-                                    <select
-                                        value={newTaskPriority}
-                                        onChange={(e) => setNewTaskPriority(e.target.value as TaskPriority)}
-                                        className="w-full bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5 rounded py-4 px-5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-brand-500/50 transition-all appearance-none cursor-pointer"
-                                        disabled={isCreating}
-                                    >
-                                        <option value="LOW">Low</option>
-                                        <option value="MEDIUM">Medium</option>
-                                        <option value="HIGH">High</option>
-                                        <option value="URGENT">Urgent</option>
-                                    </select>
-                                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                                </div>
+                                <Select
+                                    options={[
+                                        { value: "LOW", label: "Low" },
+                                        { value: "MEDIUM", label: "Medium" },
+                                        { value: "HIGH", label: "High" },
+                                        { value: "URGENT", label: "Urgent" }
+                                    ]}
+                                    defaultValue={newTask.priority}
+                                    placeholder="Select priority"
+                                    onChange={val => setNewTask(prev => ({ ...prev, priority: val as TaskPriority }))}
+                                    className="h-14 bg-white dark:bg-[#1A1A1A] border-gray-200 dark:border-white/5 rounded-none"
+                                />
                             </div>
                         </div>
 
                         <div className="flex gap-4 pt-4">
                             <button
                                 type="button"
-                                onClick={() => setShowCreateModal(false)}
+                                onClick={() => setCreateModalOpen(false)}
                                 className="flex-1 py-4 border border-gray-200 dark:border-white/10 rounded text-[11px] text-gray-500 uppercase tracking-widest hover:bg-gray-50 dark:hover:bg-white/5 transition-all"
-                                disabled={isCreating}
+                                disabled={createMutation.isPending}
                             >
                                 Cancel
                             </button>
                             <button
                                 type="submit"
                                 className="flex-1 py-4 bg-brand-500 hover:bg-brand-600 rounded text-[11px] text-white uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                                disabled={isCreating}
+                                disabled={createMutation.isPending}
                             >
-                                {isCreating ? (
+                                {createMutation.isPending ? (
                                     <>
                                         <RefreshCw className="w-4 h-4 animate-spin font-black" />
                                         <span>Saving...</span>

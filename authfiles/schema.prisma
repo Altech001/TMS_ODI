@@ -1,0 +1,984 @@
+// Prisma Schema for Multi-Tenant Project & Task Management Platform
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  passwordHash    String
+  name            String
+  isEmailVerified Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  memberships        OrganizationMember[]
+  invitesSent        OrganizationInvite[]  @relation("InviteSender")
+  ownedOrganizations Organization[]        @relation("OrganizationOwner")
+  projectMemberships ProjectMember[]
+  assignedTasks      TaskAssignee[]
+  createdTasks       Task[]                @relation("TaskCreator")
+  createdExpenses    Expense[]             @relation("ExpenseCreator")
+  approvedExpenses   Expense[]             @relation("ExpenseApprover")
+  notifications      Notification[]
+  presenceHistory    UserPresenceHistory[]
+  auditLogs          AuditLog[]            @relation("AuditUser")
+  refreshTokens      RefreshToken[]
+
+  // Personal Finance Relations
+  personalAccounts         PersonalAccount[]
+  personalCategories       PersonalCategory[]
+  personalTransactions     PersonalTransaction[]
+  personalFinanceAuditLogs PersonalFinanceAuditLog[]
+  personalFinanceReports   PersonalFinanceReport[]
+
+  // Org Finance Relations
+  orgFinanceCreatedEntries  OrgFinanceLedgerEntry[]   @relation("OrgLedgerCreator")
+  orgFinanceEditedEntries   OrgFinanceLedgerEntry[]   @relation("OrgLedgerEditor")
+  orgFinanceApprovedEntries OrgFinanceLedgerEntry[]   @relation("OrgLedgerApprover")
+  orgFinanceDeleteRequests  OrgFinanceDeleteRequest[] @relation("OrgDeleteRequester")
+  orgFinanceDeleteApprovals OrgFinanceDeleteRequest[] @relation("OrgDeleteApprover")
+  orgFinanceAuditLogs       OrgFinanceAuditLog[]      @relation("OrgFinanceAuditUser")
+  orgFinanceReports         OrgFinanceReport[]        @relation("OrgFinanceReportUser")
+
+  // Cashbook Relations
+  cashbookMemberships OrgCashbookMember[]
+
+  @@index([email])
+  @@index([createdAt])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model OtpCode {
+  id        String    @id @default(uuid())
+  email     String
+  code      String
+  type      OtpType
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email, type])
+  @@index([code])
+  @@index([expiresAt])
+}
+
+enum OtpType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+// ============================================================================
+// ORGANIZATION (WORKSPACE / TENANT)
+// ============================================================================
+
+model Organization {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  ownerId   String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete
+
+  // Relations
+  owner           User                  @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  members         OrganizationMember[]
+  invites         OrganizationInvite[]
+  projects        Project[]
+  tasks           Task[]
+  expenses        Expense[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  presenceHistory UserPresenceHistory[]
+
+  // Org Finance Relations
+  financeAccounts       OrgFinanceAccount[]
+  financeLedgerEntries  OrgFinanceLedgerEntry[]
+  financeDeleteRequests OrgFinanceDeleteRequest[]
+  financeAuditLogs      OrgFinanceAuditLog[]
+  financeReports        OrgFinanceReport[]
+
+  // Cashbook Relations
+  financeCashbooks OrgCashbook[]
+  financeContacts  OrgContact[]
+
+  @@index([ownerId])
+  @@index([slug])
+  @@index([deletedAt])
+  @@index([createdAt])
+}
+
+model OrganizationMember {
+  id             String     @id @default(uuid())
+  userId         String
+  organizationId String
+  role           MemberRole
+  joinedAt       DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@index([userId])
+  @@index([role])
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MANAGER
+  MEMBER
+  VIEWER
+  ACCOUNTANT
+}
+
+model OrganizationInvite {
+  id             String       @id @default(uuid())
+  email          String
+  organizationId String
+  invitedById    String
+  role           MemberRole
+  token          String       @unique
+  expiresAt      DateTime
+  status         InviteStatus @default(PENDING)
+  createdAt      DateTime     @default(now())
+  respondedAt    DateTime?
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InviteSender", fields: [invitedById], references: [id])
+
+  @@index([email])
+  @@index([organizationId])
+  @@index([token])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+// ============================================================================
+// PROJECTS
+// ============================================================================
+
+model Project {
+  id             String            @id @default(uuid())
+  organizationId String
+  name           String
+  description    String?
+  visibility     ProjectVisibility @default(PRIVATE)
+  status         ProjectStatus     @default(ACTIVE)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  archivedAt     DateTime?
+  deletedAt      DateTime? // Soft delete
+
+  // Relations
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      ProjectMember[]
+  tasks        Task[]
+  expenses     Expense[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([visibility])
+  @@index([deletedAt])
+  @@index([createdAt])
+}
+
+enum ProjectVisibility {
+  PRIVATE
+  ORG_WIDE
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  COMPLETED
+}
+
+model ProjectMember {
+  id        String      @id @default(uuid())
+  projectId String
+  userId    String
+  role      ProjectRole @default(MEMBER)
+  joinedAt  DateTime    @default(now())
+
+  // Relations
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+enum ProjectRole {
+  LEAD
+  MEMBER
+  VIEWER
+}
+
+// ============================================================================
+// TASKS
+// ============================================================================
+
+model Task {
+  id             String       @id @default(uuid())
+  organizationId String
+  projectId      String?
+  parentTaskId   String? // For subtasks
+  title          String
+  description    String?
+  status         TaskStatus   @default(TODO)
+  priority       TaskPriority @default(MEDIUM)
+  dueDate        DateTime?
+  createdById    String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  completedAt    DateTime?
+  deletedAt      DateTime? // Soft delete
+
+  // Relations
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  parentTask   Task?             @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  subtasks     Task[]            @relation("Subtasks")
+  createdBy    User              @relation("TaskCreator", fields: [createdById], references: [id])
+  assignees    TaskAssignee[]
+  expenses     Expense[]
+  activityLogs TaskActivityLog[]
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([parentTaskId])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@index([createdById])
+  @@index([deletedAt])
+  @@index([createdAt])
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model TaskAssignee {
+  id         String   @id @default(uuid())
+  taskId     String
+  userId     String
+  assignedAt DateTime @default(now())
+
+  // Relations
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+}
+
+model TaskActivityLog {
+  id        String   @id @default(uuid())
+  taskId    String
+  action    String
+  details   Json?
+  createdAt DateTime @default(now())
+
+  // Relations
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// EXPENSES
+// ============================================================================
+
+model Expense {
+  id              String          @id @default(uuid())
+  organizationId  String
+  projectId       String?
+  taskId          String?
+  title           String
+  description     String?
+  amount          Decimal         @db.Decimal(15, 2)
+  currency        String          @default("USD")
+  category        ExpenseCategory
+  status          ExpenseStatus   @default(PENDING)
+  receiptUrl      String?
+  receiptMetadata Json?
+  createdById     String
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime? // Soft delete
+
+  // Relations
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  task         Task?             @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  createdBy    User              @relation("ExpenseCreator", fields: [createdById], references: [id])
+  approvedBy   User?             @relation("ExpenseApprover", fields: [approvedById], references: [id])
+  auditLogs    ExpenseAuditLog[]
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([taskId])
+  @@index([status])
+  @@index([category])
+  @@index([createdById])
+  @@index([approvedById])
+  @@index([deletedAt])
+  @@index([createdAt])
+}
+
+enum ExpenseCategory {
+  TRAVEL
+  MEALS
+  SUPPLIES
+  EQUIPMENT
+  SOFTWARE
+  SERVICES
+  MARKETING
+  OTHER
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ExpenseAuditLog {
+  id           String   @id @default(uuid())
+  expenseId    String
+  action       String
+  previousData Json?
+  newData      Json?
+  changedBy    String
+  createdAt    DateTime @default(now())
+
+  // Relations
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+  @@index([changedBy])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+model Notification {
+  id             String           @id @default(uuid())
+  userId         String
+  organizationId String?
+  type           NotificationType
+  title          String
+  message        String
+  data           Json?
+  isRead         Boolean          @default(false)
+  readAt         DateTime?
+  createdAt      DateTime         @default(now())
+
+  // Relations
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  INVITE_RECEIVED
+  INVITE_ACCEPTED
+  TASK_ASSIGNED
+  TASK_UPDATED
+  TASK_COMPLETED
+  EXPENSE_SUBMITTED
+  EXPENSE_APPROVED
+  EXPENSE_REJECTED
+  PROJECT_ADDED
+  ROLE_CHANGED
+  SYSTEM
+  ORG_FINANCE_ENTRY_CREATED
+  ORG_FINANCE_ENTRY_UPDATED
+  ORG_FINANCE_DELETE_REQUESTED
+  ORG_FINANCE_DELETE_APPROVED
+  ORG_FINANCE_DELETE_REJECTED
+  ORG_FINANCE_ADJUSTMENT
+  ORG_FINANCE_REPORT_READY
+}
+
+// ============================================================================
+// USER PRESENCE
+// ============================================================================
+
+model UserPresenceHistory {
+  id             String         @id @default(uuid())
+  userId         String
+  organizationId String
+  status         PresenceStatus
+  startedAt      DateTime       @default(now())
+  endedAt        DateTime?
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([startedAt])
+}
+
+enum PresenceStatus {
+  AVAILABLE
+  WORKING
+  BUSY
+  IN_MEETING
+  ON_BREAK
+  AT_LUNCH
+  AWAY
+  OFFLINE
+}
+
+// ============================================================================
+// AUDIT LOGS
+// ============================================================================
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String?
+  entityType     String
+  entityId       String
+  action         String
+  previousData   Json?
+  newData        Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation("AuditUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// PERSONAL FINANCE (PRIVATE USER ACCOUNTING)
+// ============================================================================
+
+model PersonalAccount {
+  id         String              @id @default(uuid())
+  userId     String
+  name       String
+  type       PersonalAccountType
+  currency   String              @default("USD")
+  balance    Decimal             @default(0) @db.Decimal(15, 2)
+  isArchived Boolean             @default(false)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactionsFrom PersonalTransaction[] @relation("FromAccount")
+  transactionsTo   PersonalTransaction[] @relation("ToAccount")
+
+  @@index([userId])
+  @@index([userId, isArchived])
+  @@index([createdAt])
+}
+
+enum PersonalAccountType {
+  CASH
+  BANK
+  MOBILE_MONEY
+  SAVINGS
+  CREDIT_CARD
+  INVESTMENT
+  OTHER
+}
+
+model PersonalCategory {
+  id        String               @id @default(uuid())
+  userId    String? // null = system default
+  name      String
+  type      PersonalCategoryType
+  icon      String?
+  color     String?
+  isSystem  Boolean              @default(false)
+  createdAt DateTime             @default(now())
+
+  user         User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions PersonalTransaction[]
+
+  @@unique([userId, name, type])
+  @@index([userId])
+  @@index([type])
+  @@index([isSystem])
+}
+
+enum PersonalCategoryType {
+  INCOME
+  EXPENSE
+}
+
+model PersonalTransaction {
+  id          String                  @id @default(uuid())
+  userId      String
+  accountId   String
+  toAccountId String? // For transfers
+  categoryId  String?
+  type        PersonalTransactionType
+  amount      Decimal                 @db.Decimal(15, 2)
+  currency    String
+
+  // --- NEW FIELDS FOR CASHBOOK STANDARDS ---
+  exchangeRate    Decimal?  @db.Decimal(10, 6) // For multi-currency transfers
+  transferGroupId String? // UUID linking the Debit and Credit sides of a transfer
+  voucherNumber   String? // Human-readable reference (e.g., "TRX-1023")
+  isReconciled    Boolean   @default(false) // Check against bank statement
+  reconciledAt    DateTime?
+  // -----------------------------------------
+
+  note          String?
+  reference     String?
+  transactionAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  user      User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account   PersonalAccount           @relation("FromAccount", fields: [accountId], references: [id])
+  toAccount PersonalAccount?          @relation("ToAccount", fields: [toAccountId], references: [id])
+  category  PersonalCategory?         @relation(fields: [categoryId], references: [id])
+  auditLogs PersonalFinanceAuditLog[]
+
+  @@index([userId])
+  @@index([userId, accountId])
+  @@index([userId, categoryId])
+  @@index([userId, transactionAt])
+  @@index([userId, type])
+  @@index([transferGroupId]) // Index for quick transfer lookups
+  @@index([isReconciled])
+  @@index([createdAt])
+  @@index([deletedAt])
+}
+
+enum PersonalTransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+model PersonalFinanceAuditLog {
+  id            String   @id @default(uuid())
+  userId        String
+  transactionId String?
+  entityType    String
+  entityId      String
+  action        String
+  previousData  Json?
+  newData       Json?
+  createdAt     DateTime @default(now())
+
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction PersonalTransaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model PersonalFinanceReport {
+  id           String             @id @default(uuid())
+  userId       String
+  type         PersonalReportType
+  format       ReportFormat
+  status       ReportStatus       @default(PENDING)
+  parameters   Json
+  fileUrl      String?
+  fileKey      String?
+  expiresAt    DateTime?
+  errorMessage String?
+  createdAt    DateTime           @default(now())
+  completedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum PersonalReportType {
+  MONTHLY_SUMMARY
+  FULL_STATEMENT
+  CATEGORY_BREAKDOWN
+  CASHFLOW
+}
+
+enum ReportFormat {
+  PDF
+  EXCEL
+}
+
+enum ReportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ============================================================================
+// ORGANIZATION FINANCE / CASHBOOK
+// ============================================================================
+// --- 1. THE CASHBOOK (CONTAINER) ---
+model OrgCashbook {
+  id             String  @id @default(uuid())
+  organizationId String
+  name           String
+  description    String?
+  currency       String  @default("USD") // Base currency for reporting
+
+  // Settings / Controls
+  allowBackdated Boolean   @default(false)
+  allowOmitted   Boolean   @default(false) // Allow "OMITTED" category
+  lockDate       DateTime? // No entries allowed before this date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  accounts     OrgFinanceAccount[]
+  members      OrgCashbookMember[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+// --- 2. CASHBOOK MEMBERS (PERMISSIONS) ---
+model OrgCashbookMember {
+  id         String       @id @default(uuid())
+  cashbookId String
+  userId     String
+  role       CashbookRole
+  assignedAt DateTime     @default(now())
+
+  cashbook OrgCashbook @relation(fields: [cashbookId], references: [id], onDelete: Cascade)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([cashbookId, userId])
+  @@index([cashbookId])
+  @@index([userId])
+}
+
+enum CashbookRole {
+  VIEWER // Can only view
+  EDITOR // Can create entries
+  APPROVER // Can approve delete requests & adjustments
+}
+
+// --- 3. ACCOUNTS (WALLETS INSIDE CASHBOOK) ---
+model OrgFinanceAccount {
+  id             String                @id @default(uuid())
+  organizationId String
+  cashbookId     String
+  name           String
+  type           OrgFinanceAccountType
+  currency       String                @default("USD")
+  description    String?
+  isArchived     Boolean               @default(false)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  organization  Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  cashbook      OrgCashbook             @relation(fields: [cashbookId], references: [id], onDelete: Cascade)
+  ledgerEntries OrgFinanceLedgerEntry[]
+
+  @@unique([cashbookId, name]) // Names must be unique within a cashbook
+  @@index([organizationId])
+  @@index([cashbookId])
+  @@index([type])
+}
+
+enum OrgFinanceAccountType {
+  CASH
+  BANK
+  MOBILE_MONEY
+  PETTY_CASH
+  SAVINGS
+  OTHER
+}
+
+// --- 4. CONTACTS (SUPPLIERS / CUSTOMERS) ---
+model OrgContact {
+  id             String      @id @default(uuid())
+  organizationId String
+  name           String
+  type           ContactType @default(OTHER)
+  phone          String?
+  email          String?
+  taxId          String? // TIN / VAT Number
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization  Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ledgerEntries OrgFinanceLedgerEntry[]
+
+  @@index([organizationId])
+  @@index([name])
+}
+
+enum ContactType {
+  CUSTOMER
+  SUPPLIER
+  EMPLOYEE
+  OTHER
+}
+
+// --- 5. ATTACHMENTS (EVIDENCE) ---
+model OrgFinanceAttachment {
+  id         String   @id @default(uuid())
+  entryId    String
+  fileKey    String // S3 Key
+  fileName   String // Original filename
+  fileType   String // MIME type
+  fileSize   Int // Size in bytes
+  uploadedAt DateTime @default(now())
+
+  entry OrgFinanceLedgerEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+}
+
+// --- 6. LEDGER ENTRIES ---
+model OrgFinanceLedgerEntry {
+  id             String  @id @default(uuid())
+  organizationId String
+  accountId      String
+  contactId      String? // New: Link to Payee/Payer
+  createdById    String
+
+  type          OrgLedgerType
+  entryCategory OrgLedgerEntryCategory @default(NORMAL)
+
+  amount       Decimal  @db.Decimal(15, 2)
+  currency     String   @default("USD")
+  exchangeRate Decimal? @db.Decimal(10, 6)
+
+  description   String
+  reference     String?
+  voucherNumber String?
+
+  reason          String?
+  transactionDate DateTime
+
+  status         OrgLedgerStatus @default(ACTIVE)
+  idempotencyKey String?         @unique
+
+  // Transfer Linking
+  transferGroupId String?
+
+  // Reconciliation
+  isReconciled Boolean   @default(false)
+  reconciledAt DateTime?
+
+  // Edit tracking
+  isEdited       Boolean   @default(false)
+  editReason     String?
+  lastEditedById String?
+  lastEditedAt   DateTime?
+
+  // Delete tracking
+  deletedReason       String?
+  deleteRequestedById String?
+  approvedById        String?
+  approvedAt          DateTime?
+
+  // Reversal tracking
+  reversalOfId String?
+  reversedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  account      OrgFinanceAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact      OrgContact?       @relation(fields: [contactId], references: [id])
+  createdBy    User              @relation("OrgLedgerCreator", fields: [createdById], references: [id])
+  lastEditedBy User?             @relation("OrgLedgerEditor", fields: [lastEditedById], references: [id])
+  approvedBy   User?             @relation("OrgLedgerApprover", fields: [approvedById], references: [id])
+
+  attachments    OrgFinanceAttachment[]
+  deleteRequests OrgFinanceDeleteRequest[]
+  auditLogs      OrgFinanceAuditLog[]
+
+  @@index([organizationId])
+  @@index([accountId])
+  @@index([contactId])
+  @@index([transactionDate])
+  @@index([voucherNumber])
+  @@index([transferGroupId])
+}
+
+enum OrgLedgerType {
+  INFLOW
+  OUTFLOW
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum OrgLedgerEntryCategory {
+  NORMAL
+  BACKDATED
+  OMITTED
+  PRIOR_ADJUSTMENT
+}
+
+enum OrgLedgerStatus {
+  ACTIVE
+  REVERSED
+  DELETED
+  PENDING_DELETE_APPROVAL
+}
+
+// --- 7. DELETE REQUESTS ---
+model OrgFinanceDeleteRequest {
+  id              String                 @id @default(uuid())
+  organizationId  String
+  entryId         String
+  requestedById   String
+  reason          String
+  status          OrgDeleteRequestStatus @default(PENDING)
+  approvedById    String?
+  rejectionReason String?
+  createdAt       DateTime               @default(now())
+  resolvedAt      DateTime?
+
+  entry        OrgFinanceLedgerEntry @relation(fields: [entryId], references: [id])
+  requestedBy  User                  @relation("OrgDeleteRequester", fields: [requestedById], references: [id])
+  approvedBy   User?                 @relation("OrgDeleteApprover", fields: [approvedById], references: [id])
+  organization Organization          @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+enum OrgDeleteRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// --- 8. AUDIT LOGS ---
+model OrgFinanceAuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  entryId        String?
+  entityType     String
+  entityId       String
+  action         String
+  previousData   Json?
+  newData        Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  user         User                   @relation("OrgFinanceAuditUser", fields: [userId], references: [id])
+  entry        OrgFinanceLedgerEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+  organization Organization           @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([entityType, entityId])
+}
+
+// --- 9. REPORTS ---
+model OrgFinanceReport {
+  id             String               @id @default(uuid())
+  organizationId String
+  userId         String
+  type           OrgFinanceReportType
+  format         ReportFormat
+  status         ReportStatus         @default(PENDING)
+  parameters     Json
+  fileUrl        String?
+  fileKey        String?
+  expiresAt      DateTime?
+  errorMessage   String?
+  createdAt      DateTime             @default(now())
+  completedAt    DateTime?
+
+  user         User         @relation("OrgFinanceReportUser", fields: [userId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+enum OrgFinanceReportType {
+  CASHBOOK
+  INFLOW_VS_OUTFLOW
+  ACCOUNT_BALANCES
+  MONTHLY_SUMMARY
+  CUSTOM_DATE_RANGE
+}

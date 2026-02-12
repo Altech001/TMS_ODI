@@ -4,19 +4,20 @@ import {
     Calendar,
     Coffee,
     FileText,
+    Loader2,
     LogOut,
     Play,
-    User,
     Utensils,
     Zap
 } from "lucide-react";
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import Chart from "react-apexcharts";
 import ActivityTimeline from "../../components/Employee/ActivityTimeline";
 import { useAuth } from "../../context/AuthContext";
 import { useOrganization } from "../../context/OrganizationContext";
-import { TaskAPI, Task, PresenceStatus, NotificationAPI, Notification } from "../../services/api";
 import { usePresence } from "../../context/PresenceContext";
+import { Notification, NotificationAPI, PresenceStatus, Task, TaskAPI } from "../../services/api";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 // Types
 interface ActivityItem {
@@ -150,59 +151,55 @@ const EmployeeDashboard: React.FC = () => {
         refreshMyHistory
     } = usePresence();
 
-    const [tasks, setTasks] = useState<Task[]>([]);
-    const [notifications, setNotifications] = useState<Notification[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [dashboardType, setDashboardType] = useState<"personal" | "business">("business");
+
+    // Tasks Query
+    const { data: tasks = [], isLoading: tasksLoading } = useQuery<Task[]>({
+        queryKey: ["tasks", currentOrganization?.id],
+        queryFn: async () => {
+            const res = await TaskAPI.getAll({ limit: 100 });
+            if (res.success) {
+                if (Array.isArray(res.data)) return res.data;
+                if ((res.data as any)?.tasks) return (res.data as any).tasks;
+            }
+            return [];
+        },
+        enabled: !!currentOrganization && !isSwitching,
+        refetchInterval: 60000,
+    });
+
+    // Notifications Query
+    const { data: notifications = [] } = useQuery<Notification[]>({
+        queryKey: ["notifications", currentOrganization?.id],
+        queryFn: async () => {
+            const res = await NotificationAPI.getAll({ limit: 10 });
+            return res.success && Array.isArray(res.data) ? res.data : [];
+        },
+        enabled: !!currentOrganization && !isSwitching,
+        refetchInterval: 60000,
+    });
+
+    // Experience Refresh (Sync Presence state)
+    useQuery({
+        queryKey: ["presence-sync", currentOrganization?.id],
+        queryFn: async () => {
+            await Promise.all([refreshMyPresence(), refreshMyHistory()]);
+            return true;
+        },
+        enabled: !!currentOrganization && !isSwitching,
+        refetchInterval: 60000,
+    });
+
+    // Status Mutation
+    const statusMutation = useMutation({
+        mutationFn: (newStatus: PresenceStatus) => updateStatus(newStatus),
+    });
+
     const isCheckedIn = status !== "OFFLINE";
-
-    useEffect(() => {
-        const fetchInitialData = async () => {
-            if (isSwitching || !currentOrganization) return;
-            // Only set loading on initial fetch, not on background refreshes
-            if (tasks.length === 0 && presenceHistory.length === 0) {
-                setIsLoading(true);
-            }
-
-            try {
-                await Promise.all([
-                    refreshMyPresence(),
-                    refreshMyHistory(),
-                    (async () => {
-                        const tasksRes = await TaskAPI.getAll({ limit: 100 });
-                        console.log("Dashboard: Tasks fetch result:", tasksRes);
-                        if (tasksRes.success && Array.isArray(tasksRes.data)) {
-                            setTasks(tasksRes.data);
-                        } else if (tasksRes.success && (tasksRes.data as any)?.tasks) {
-                            setTasks((tasksRes.data as any).tasks);
-                        }
-                    })(),
-                    (async () => {
-                        const notifRes = await NotificationAPI.getAll({ limit: 10 });
-                        if (notifRes.success && notifRes.data?.notifications) {
-                            setNotifications(notifRes.data.notifications);
-                        }
-                    })()
-                ]);
-            } catch (err) {
-                console.error("Dashboard: Data fetch error:", err);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchInitialData();
-
-        // Real-time refresh every 60 seconds
-        const refreshInterval = setInterval(() => {
-            fetchInitialData();
-        }, 60000);
-
-        return () => clearInterval(refreshInterval);
-    }, [currentOrganization?.id, isSwitching, refreshMyPresence, refreshMyHistory]);
-
+    const isLoading = tasksLoading && tasks.length === 0;
 
     const handleStatusChange = async (newStatus: PresenceStatus) => {
-        await updateStatus(newStatus);
+        statusMutation.mutate(newStatus);
     };
 
     const formatTime = (totalSeconds: number) => {
@@ -216,9 +213,9 @@ const EmployeeDashboard: React.FC = () => {
         const now = new Date();
         return {
             total: tasks.length,
-            overdue: tasks.filter(t => t.dueDate && new Date(t.dueDate) < now && t.status !== "COMPLETED").length,
-            ongoing: tasks.filter(t => t.status === "IN_PROGRESS").length,
-            completed: tasks.filter(t => t.status === "COMPLETED").length
+            overdue: tasks.filter((t: Task) => t.dueDate && new Date(t.dueDate) < now && t.status !== "COMPLETED").length,
+            ongoing: tasks.filter((t: Task) => t.status === "IN_PROGRESS").length,
+            completed: tasks.filter((t: Task) => t.status === "COMPLETED").length
         };
     }, [tasks]);
 
@@ -231,16 +228,16 @@ const EmployeeDashboard: React.FC = () => {
             return d;
         });
 
-        const completedData = last7Days.map(date => {
-            return tasks.filter(t =>
+        const completedData = last7Days.map((date: Date) => {
+            return tasks.filter((t: Task) =>
                 t.status === "COMPLETED" &&
                 t.completedAt &&
                 new Date(t.completedAt).toDateString() === date.toDateString()
             ).length;
         });
 
-        const plannedData = last7Days.map(date => {
-            return tasks.filter(t =>
+        const plannedData = last7Days.map((date: Date) => {
+            return tasks.filter((t: Task) =>
                 new Date(t.createdAt).toDateString() === date.toDateString()
             ).length;
         });
@@ -309,7 +306,7 @@ const EmployeeDashboard: React.FC = () => {
             { id: "1", user: "System", action: "welcome", target: "Start your day with ODI", time: "Just now", type: "status" }
         ];
 
-        return notifications.map(n => ({
+        return notifications.map((n: Notification) => ({
             id: n.id,
             user: n.title,
             action: n.message.length > 30 ? n.message.substring(0, 30) + "..." : n.message,
@@ -329,7 +326,7 @@ const EmployeeDashboard: React.FC = () => {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
                     <h1 className="text-xl font-bold text-gray-900 dark:text-white tracking-tight uppercase">
-                        Welcome, <span className="text-brand-500">{user?.name || "Member"}</span> 👋
+                        Welcome, <span className="text-brand-500">{user?.firstName || "Member"}</span> 👋
                     </h1>
                     <div className="flex items-center gap-3 mt-1.5">
                         <Calendar className="w-3.5 h-3.5 text-brand-500" />
@@ -345,24 +342,35 @@ const EmployeeDashboard: React.FC = () => {
 
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={() => updateStatus(isCheckedIn ? "OFFLINE" : "WORKING")}
+                        onClick={() => handleStatusChange(isCheckedIn ? "OFFLINE" : "WORKING")}
+                        disabled={statusMutation.isPending}
                         className={`px-5 py-2.5 text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2 border ${isCheckedIn
                             ? "bg-green-500/10 text-green-500 border-green-500/20"
                             : "bg-brand-500 text-white border-brand-500 shadow-lg shadow-brand-500/20"
-                            }`}
+                            } ${statusMutation.isPending ? "opacity-70 cursor-wait" : ""}`}
                     >
                         <div className={`w-1.5 h-1.5 rounded-full ${isCheckedIn ? "bg-green-500 animate-pulse" : "bg-white"}`}></div>
-                        {isCheckedIn ? "Checked In" : "Check In Now"}
+                        {statusMutation.isPending ? "Syncing..." : (isCheckedIn ? "Checked In" : "Check In Now")}
                     </button>
-
-                    <div className="flex items-center gap-3 pl-4 border-l border-gray-200 dark:border-white/10">
-                        <div className="text-right">
-                            <p className="text-[10px] font-bold text-gray-900 dark:text-white uppercase tracking-tight">Team Member</p>
-                            <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Active Organization</p>
-                        </div>
-                        <div className="w-10 h-10 rounded-md bg-gray-100 dark:bg-white/5 flex items-center justify-center">
-                            <User className="w-5 h-5 text-brand-500" />
-                        </div>
+                    <div className="flex bg-gray-100 dark:bg-white/5 p-1 rounded-md border border-gray-200/50 dark:border-white/10">
+                        <button
+                            onClick={() => setDashboardType("personal")}
+                            className={`px-4 py-2 rounded-md text-[10px]  font-bold uppercase  transition-all ${dashboardType === "personal"
+                                ? "bg-white dark:bg-white/10 text-brand-500 border border-gray-200/50 dark:border-white/10"
+                                : "text-gray-500 hover:text-gray-700 dark:hover:text-white/70"
+                                }`}
+                        >
+                            Personal
+                        </button>
+                        <button
+                            onClick={() => setDashboardType("business")}
+                            className={`px-4 py-2 rounded-md text-[10px] font-bold uppercase transition-all ${dashboardType === "business"
+                                ? "bg-white dark:bg-white/10 text-brand-500 border border-gray-200/50 dark:border-white/10"
+                                : "text-gray-500 hover:text-gray-700 dark:hover:text-white/70"
+                                }`}
+                        >
+                            Business
+                        </button>
                     </div>
                 </div>
             </div>
@@ -377,23 +385,12 @@ const EmployeeDashboard: React.FC = () => {
                         <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/5 blur-xl rounded-full translate-x-16 -translate-y-16"></div>
 
                         <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
-                            {/* Visual Timer */}
-                            <div className="flex flex-col items-center">
-                                <div className="relative w-36 h-36 flex flex-col items-center justify-center border-4 border-gray-100 dark:border-white/5 rounded-full">
-                                    <div className="absolute inset-0 border-4 border-brand-500 border-t-transparent rounded-full animate-[spin_3s_linear_infinite]"></div>
-                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] mb-1">Session</span>
-                                    <span className="text-2xl font-bold text-gray-900 dark:text-white font-mono tracking-tight">{formatTime(seconds)}</span>
-                                </div>
-                                <div className={`mt-4 px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest ${status === 'WORKING' ? 'bg-blue-500/10 text-blue-500' :
-                                    status === 'ON_BREAK' ? 'bg-amber-500/10 text-amber-500' :
-                                        status === 'AT_LUNCH' ? 'bg-orange-500/10 text-orange-500' :
-                                            'bg-red-500/10 text-red-500'
-                                    }`}>
-                                    {status.replace('_', ' ')}
-                                </div>
-                            </div>
+
 
                             {/* Status Toggles */}
+                            <p>
+                                {status.replace('_', ' ')}
+                            </p>
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full">
                                 {[
                                     { id: 'WORKING', icon: <Play className="w-5 h-5" />, label: 'Work', color: 'blue' },
@@ -404,13 +401,16 @@ const EmployeeDashboard: React.FC = () => {
                                     <button
                                         key={btn.id}
                                         onClick={() => handleStatusChange(btn.id as PresenceStatus)}
+                                        disabled={statusMutation.isPending}
                                         className={`flex flex-col items-center justify-center p-5 rounded-md border transition-all duration-300 ${status === btn.id
                                             ? `bg-${btn.color}-500/10 border-${btn.color}-500/20`
                                             : "bg-gray-50 dark:bg-white/5 border-gray-100 dark:border-white/5 hover:border-gray-300 dark:hover:border-white/20"
-                                            }`}
+                                            } ${statusMutation.isPending ? "opacity-50 cursor-not-allowed" : ""}`}
                                     >
                                         <div className={`mb-3 transition-colors ${status === btn.id ? `text-${btn.color}-500` : "text-gray-400"}`}>
-                                            {btn.icon}
+                                            {statusMutation.isPending && statusMutation.variables === btn.id ? (
+                                                <Loader2 className="w-5 h-5 animate-spin" />
+                                            ) : btn.icon}
                                         </div>
                                         <span className={`text-[10px] font-bold uppercase tracking-widest ${status === btn.id ? "text-gray-900 dark:text-white" : "text-gray-500"}`}>
                                             {btn.label}

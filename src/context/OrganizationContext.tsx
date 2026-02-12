@@ -1,498 +1,343 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { Organization, OrganizationAPI, TokenManager, apiClient, OrganizationMember, Role, MembershipAPI, OrganizationInvite } from '../services/api';
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import apiClient from "../lib/api-client";
+import { useAuth } from "./AuthContext";
 
-// ==========================================
-// Organization Context Types
-// ==========================================
-
-interface OrganizationState {
-  currentOrganization: Organization | null;
-  organizations: Organization[];
-  members: OrganizationMember[];
-  invites: OrganizationInvite[];
-  isLoading: boolean;
-  error: string | null;
-  isSwitching: boolean;
+// Types matching the services/api.ts Organization shape
+export interface Organization {
+    id: string;
+    name: string;
+    role: "OWNER" | "ADMIN" | "MANAGER" | "MEMBER" | "VIEWER";
+    createdAt?: string;
+    updatedAt?: string;
+    ownerId?: string;
+    members?: any[];
+    owner?: {
+        id: string;
+        name: string;
+        email: string;
+    };
 }
 
-interface OrganizationContextType extends OrganizationState {
-  switchOrganization: (orgId: string) => Promise<void>;
-  refreshOrganizations: () => Promise<void>;
-  refreshCurrentOrganization: () => Promise<void>;
-  createOrganization: (name: string) => Promise<Organization | null>;
-  updateOrganization: (data: { name: string }) => Promise<void>;
-  fetchMembers: () => Promise<void>;
-  inviteMember: (email: string, role: string) => Promise<void>;
-  removeMember: (memberId: string) => Promise<void>;
-  updateMemberRole: (memberId: string, role: string) => Promise<void>;
-  leaveOrganization: () => Promise<void>;
-  transferOwnership: (newOwnerId: string) => Promise<void>;
-  fetchInvites: () => Promise<void>;
-  acceptInvitation: (token: string) => Promise<void>;
-  declineInvitation: (token: string) => Promise<void>;
-  clearError: () => void;
+interface OrganizationContextType {
+    organizations: Organization[];
+    currentOrganization: Organization | null;
+    isLoading: boolean;
+    isSwitching: boolean;
+    switchOrganization: (orgId: string) => Promise<void>;
+    createOrganization: (name: string) => Promise<Organization | null>;
+    refreshOrganizations: () => Promise<void>;
+    refreshCurrentOrganization: () => Promise<void>;
+    invites: any[];
+    fetchInvites: () => Promise<void>;
+    acceptInvitation: (token: string) => Promise<void>;
+    declineInvitation: (token: string) => Promise<void>;
+    members: any[];
+    fetchMembers: () => Promise<void>;
+    inviteMember: (email: string, role: string) => Promise<void>;
+    removeMember: (memberId: string) => Promise<void>;
+    updateMemberRole: (memberId: string, role: string) => Promise<void>;
+    updateOrganization: (data: { name?: string }) => Promise<void>;
+    leaveOrganization: () => Promise<void>;
+    transferOwnership: (newOwnerId: string) => Promise<void>;
+    error: string | null;
 }
-
-const initialState: OrganizationState = {
-  currentOrganization: null,
-  organizations: [],
-  members: [],
-  invites: [],
-  isLoading: true,
-  error: null,
-  isSwitching: false,
-};
-
-// ==========================================
-// Organization Context
-// ==========================================
 
 const OrganizationContext = createContext<OrganizationContextType | undefined>(undefined);
 
-// ==========================================
-// Organization Provider Component
-// ==========================================
+export function OrganizationProvider({ children }: { children: React.ReactNode }) {
+    const { isAuthenticated } = useAuth();
+    const [organizations, setOrganizations] = useState<Organization[]>([]);
+    const [currentOrganization, setCurrentOrganization] = useState<Organization | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isSwitching, setIsSwitching] = useState(false);
+    const [invites, setInvites] = useState<any[]>([]);
+    const [members, setMembers] = useState<any[]>([]);
+    const [error, setError] = useState<string | null>(null);
 
-interface OrganizationProviderProps {
-  children: ReactNode;
+    // Fetch all organizations the user belongs to
+    const refreshOrganizations = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const { data } = await apiClient.get("/organizations");
+            // Backend returns { success: true, data: Array<{ role, organization: { ... } }> }
+            const memberships = data.data || [];
+            const orgs: Organization[] = memberships.map((m: any) => ({
+                ...m.organization,
+                role: m.role,
+            }));
+            setOrganizations(orgs);
+
+            // Restore or set active org
+            const savedOrgId = localStorage.getItem("activeOrgId");
+            const saved = orgs.find((o) => o.id === savedOrgId);
+            if (saved) {
+                setCurrentOrganization(saved);
+                localStorage.setItem("currentOrganizationId", saved.id);
+            } else if (orgs.length > 0) {
+                setCurrentOrganization(orgs[0]);
+                localStorage.setItem("activeOrgId", orgs[0].id);
+                localStorage.setItem("currentOrganizationId", orgs[0].id);
+            }
+        } catch {
+            // silently fail
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    // Refresh current org details from API
+    const refreshCurrentOrganization = useCallback(async () => {
+        try {
+            const { data } = await apiClient.get("/organizations/current");
+            const fullOrg = data.data || data;
+
+            // Update currentOrganization with full details
+            setCurrentOrganization((prev) =>
+                prev ? { ...prev, ...fullOrg } : fullOrg
+            );
+
+            // Also update in the orgs list
+            if (fullOrg.id) {
+                setOrganizations((prev) =>
+                    prev.map((o) => (o.id === fullOrg.id ? { ...o, ...fullOrg } : o))
+                );
+            }
+        } catch {
+            // silently fail
+        }
+    }, []);
+
+    // Switch to a different organization
+    const switchOrganization = useCallback(
+        async (orgId: string) => {
+            setIsSwitching(true);
+            try {
+                const org = organizations.find((o) => o.id === orgId);
+                if (org) {
+                    setCurrentOrganization(org);
+                    localStorage.setItem("activeOrgId", org.id);
+                    // Also store for services/api.ts compatibility
+                    localStorage.setItem("currentOrganizationId", org.id);
+
+                    // Small delay to allow queries to react to isSwitching
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            } finally {
+                setIsSwitching(false);
+            }
+        },
+        [organizations]
+    );
+
+    // Create a new organization
+    const createOrganization = useCallback(
+        async (name: string): Promise<Organization | null> => {
+            const { data } = await apiClient.post("/organizations", { name });
+            const newOrgData = data.data || data;
+
+            // Refresh orgs list so the new org appears
+            await refreshOrganizations();
+
+            // Find and switch to the newly created org
+            const newOrg: Organization = {
+                id: newOrgData.id || newOrgData.organization?.id,
+                name: newOrgData.name || newOrgData.organization?.name || name,
+                role: "OWNER",
+                createdAt: newOrgData.createdAt,
+                updatedAt: newOrgData.updatedAt,
+                ownerId: newOrgData.ownerId,
+            };
+
+            setCurrentOrganization(newOrg);
+            localStorage.setItem("activeOrgId", newOrg.id);
+            localStorage.setItem("currentOrganizationId", newOrg.id);
+
+            return newOrg;
+        },
+        [refreshOrganizations]
+    );
+
+    // Fetch pending invitations for the user
+    const fetchInvites = useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const { data } = await apiClient.get("/organizations/current/invites");
+            setInvites(data.data || []);
+        } catch (err: any) {
+            setError(err.message || "Failed to fetch invitations");
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    // Accept an invitation
+    const acceptInvitation = useCallback(async (token: string) => {
+        setError(null);
+        try {
+            await apiClient.post("/organizations/invites/accept", { token });
+            await fetchInvites();
+            await refreshOrganizations();
+        } catch (err: any) {
+            setError(err.message || "Failed to accept invitation");
+            throw err;
+        }
+    }, [fetchInvites, refreshOrganizations]);
+
+    // Decline an invitation
+    const declineInvitation = useCallback(async (token: string) => {
+        setError(null);
+        try {
+            await apiClient.post("/organizations/invites/decline", { token });
+            await fetchInvites();
+        } catch (err: any) {
+            setError(err.message || "Failed to decline invitation");
+            throw err;
+        }
+    }, [fetchInvites]);
+
+    // Fetch members of the current organization
+    const fetchMembers = useCallback(async () => {
+        if (!currentOrganization?.id) return;
+        setIsLoading(true);
+        setError(null);
+        try {
+            const { data } = await apiClient.get("/organizations/current/members");
+            // Backend might return { success: true, data: { members: [] } }
+            setMembers(data.data?.members || data.data || []);
+        } catch (err: any) {
+            setError(err.message || "Failed to fetch members");
+        } finally {
+            setIsLoading(false);
+        }
+    }, [currentOrganization?.id]);
+
+    // Invite a member
+    const inviteMember = useCallback(async (email: string, role: string) => {
+        setError(null);
+        try {
+            await apiClient.post("/organizations/current/invite", { email, role });
+            await fetchMembers();
+        } catch (err: any) {
+            setError(err.message || "Failed to invite member");
+            throw err;
+        }
+    }, [fetchMembers]);
+
+    // Remove a member
+    const removeMember = useCallback(async (memberId: string) => {
+        setError(null);
+        try {
+            await apiClient.delete(`/members/${memberId}`);
+            await fetchMembers();
+        } catch (err: any) {
+            setError(err.message || "Failed to remove member");
+            throw err;
+        }
+    }, [fetchMembers]);
+
+    // Update member role
+    const updateMemberRole = useCallback(async (memberId: string, role: string) => {
+        setError(null);
+        try {
+            await apiClient.patch(`/members/${memberId}/role`, { role });
+            await fetchMembers();
+        } catch (err: any) {
+            setError(err.message || "Failed to update member role");
+            throw err;
+        }
+    }, [fetchMembers]);
+
+    // Update organization details
+    const updateOrganization = useCallback(async (data: { name?: string }) => {
+        setError(null);
+        try {
+            await apiClient.patch("/organizations/current", data);
+            await refreshCurrentOrganization();
+            await refreshOrganizations();
+        } catch (err: any) {
+            setError(err.message || "Failed to update organization");
+            throw err;
+        }
+    }, [refreshCurrentOrganization, refreshOrganizations]);
+
+    // Leave organization
+    const leaveOrganization = useCallback(async () => {
+        setError(null);
+        try {
+            await apiClient.post("/organizations/current/leave");
+            await refreshOrganizations();
+        } catch (err: any) {
+            setError(err.message || "Failed to leave organization");
+            throw err;
+        }
+    }, [refreshOrganizations]);
+
+    // Transfer ownership
+    const transferOwnership = useCallback(async (newOwnerId: string) => {
+        setError(null);
+        try {
+            await apiClient.post("/organizations/current/transfer-ownership", { newOwnerId });
+            await refreshCurrentOrganization();
+        } catch (err: any) {
+            setError(err.message || "Failed to transfer ownership");
+            throw err;
+        }
+    }, [refreshCurrentOrganization]);
+
+    // Initialize on auth change
+    useEffect(() => {
+        if (isAuthenticated) {
+            refreshOrganizations();
+            fetchInvites();
+        } else {
+            setOrganizations([]);
+            setCurrentOrganization(null);
+            setInvites([]);
+            setError(null);
+        }
+    }, [isAuthenticated, refreshOrganizations, fetchInvites]);
+
+    // Refresh current org details once we have an active org
+    useEffect(() => {
+        if (isAuthenticated && currentOrganization?.id) {
+            refreshCurrentOrganization();
+        }
+    }, [isAuthenticated, currentOrganization?.id]);
+
+    return (
+        <OrganizationContext.Provider
+            value={{
+                organizations,
+                currentOrganization,
+                isLoading,
+                isSwitching,
+                switchOrganization,
+                createOrganization,
+                refreshOrganizations,
+                refreshCurrentOrganization,
+                invites,
+                fetchInvites,
+                acceptInvitation,
+                declineInvitation,
+                members,
+                fetchMembers,
+                inviteMember,
+                removeMember,
+                updateMemberRole,
+                updateOrganization,
+                leaveOrganization,
+                transferOwnership,
+                error,
+            }}
+        >
+            {children}
+        </OrganizationContext.Provider>
+    );
 }
 
-export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({ children }) => {
-  const [state, setState] = useState<OrganizationState>(initialState);
-
-  const setPartialState = useCallback((updates: Partial<OrganizationState>) => {
-    setState(prev => ({ ...prev, ...updates }));
-  }, []);
-
-  // ==========================================
-  // Fetch Organizations List
-  // ==========================================
-  const refreshOrganizations = useCallback(async () => {
-    try {
-      setPartialState({ isLoading: true, error: null });
-
-      // Get organizations from TokenManager (set during login)
-      const orgs = TokenManager.getOrganizations();
-
-      if (orgs && orgs.length > 0) {
-        setPartialState({
-          organizations: orgs,
-          isLoading: false,
-        });
-
-        // If no current org is selected, select the first one
-        if (!apiClient.getOrganizationId() && orgs[0]) {
-          const firstOrgId = orgs[0].id;
-          apiClient.setOrganizationId(firstOrgId);
-          setPartialState({ currentOrganization: orgs[0] });
-        } else {
-          // Find and set current org from list
-          const currentOrgId = apiClient.getOrganizationId();
-          const currentOrg = orgs.find(o => o.id === currentOrgId);
-          if (currentOrg) {
-            setPartialState({ currentOrganization: currentOrg });
-          }
-        }
-      } else {
-        setPartialState({ isLoading: false });
-      }
-    } catch (error) {
-      console.error('[OrganizationContext] Error refreshing organizations:', error);
-      setPartialState({
-        error: 'Failed to load organizations',
-        isLoading: false,
-      });
-    }
-  }, [setPartialState]);
-
-  // ==========================================
-  // Fetch Current Organization Details
-  // ==========================================
-  const refreshCurrentOrganization = useCallback(async () => {
-    const orgId = apiClient.getOrganizationId();
-    if (!orgId) {
-      console.warn('[OrganizationContext] No organization ID set');
-      return;
-    }
-
-    try {
-      setPartialState({ isLoading: true, error: null });
-
-      const response = await OrganizationAPI.getCurrent();
-
-      if (response.success && response.data) {
-        // Find existing org to preserve the role
-        const orgs = TokenManager.getOrganizations();
-        const storedOrg = orgs.find(o => o.id === response.data.id);
-
-        setPartialState({
-          currentOrganization: {
-            ...response.data,
-            role: storedOrg?.role || 'MEMBER'
-          },
-          isLoading: false,
-        });
-      } else {
-        setPartialState({ isLoading: false });
-      }
-    } catch (error) {
-      console.error('[OrganizationContext] Error fetching current organization:', error);
-      setPartialState({
-        error: 'Failed to fetch organization details',
-        isLoading: false,
-      });
-    }
-  }, [setPartialState]);
-
-  // ==========================================
-  // Switch Organization (Optimistic Update)
-  // ==========================================
-  const switchOrganization = useCallback(async (orgId: string) => {
-    const { organizations, currentOrganization } = state;
-
-    // Find the target organization
-    const targetOrg = organizations.find(o => o.id === orgId);
-    if (!targetOrg) {
-      console.error('[OrganizationContext] Organization not found:', orgId);
-      return;
-    }
-
-    // Skip if already on this org
-    if (currentOrganization?.id === orgId) {
-      return;
-    }
-
-    // OPTIMISTIC UPDATE: Switch immediately
-    setPartialState({
-      currentOrganization: targetOrg,
-      isSwitching: true,
-      error: null,
-    });
-
-    // Update the API client to use new org ID
-    apiClient.setOrganizationId(orgId);
-
-    // Reorder organizations so selected is first (for persistence)
-    const reorderedOrgs = [targetOrg, ...organizations.filter(o => o.id !== orgId)];
-    TokenManager.setOrganizations(reorderedOrgs);
-    setPartialState({ organizations: reorderedOrgs });
-
-    try {
-      // Fetch full details of the new organization
-      const response = await OrganizationAPI.getCurrent();
-
-      if (response.success && response.data) {
-        setPartialState({
-          currentOrganization: {
-            ...response.data,
-            role: targetOrg.role
-          },
-          isSwitching: false,
-        });
-      } else {
-        // Keep optimistic update but clear switching state
-        setPartialState({ isSwitching: false });
-      }
-    } catch (error) {
-      console.error('[OrganizationContext] Error switching organization:', error);
-      // Keep the optimistic update - don't revert
-      setPartialState({
-        error: 'Switched locally. Failed to sync with server.',
-        isSwitching: false,
-      });
-    }
-  }, [state, setPartialState]);
-
-  // ==========================================
-  // Create Organization
-  // ==========================================
-  const createOrganization = useCallback(async (name: string): Promise<Organization | null> => {
-    try {
-      setPartialState({ isLoading: true, error: null });
-
-      const response = await OrganizationAPI.create(name);
-
-      if (response.success && response.data) {
-        const newOrg: Organization = {
-          ...response.data.organization,
-          role: 'OWNER'
-        };
-
-        // Add to organizations list
-        const updatedOrgs = [...state.organizations, newOrg];
-        TokenManager.setOrganizations(updatedOrgs);
-
-        setPartialState({
-          organizations: updatedOrgs,
-          isLoading: false,
-        });
-
-        return newOrg;
-      }
-
-      setPartialState({ isLoading: false });
-      return null;
-    } catch (error) {
-      console.error('[OrganizationContext] Error creating organization:', error);
-      setPartialState({
-        error: 'Failed to create organization',
-        isLoading: false,
-      });
-      return null;
-    }
-  }, [state.organizations, setPartialState]);
-
-  // ==========================================
-  // Membership Management
-  // ==========================================
-
-  const fetchMembers = useCallback(async () => {
-    try {
-      setPartialState({ isLoading: true });
-      const response = await OrganizationAPI.getMembers();
-      if (response.success) {
-        setPartialState({ members: response.data.members });
-      }
-    } catch (error) {
-      console.error('[OrganizationContext] Error fetching members:', error);
-    } finally {
-      setPartialState({ isLoading: false });
-    }
-  }, [setPartialState]);
-
-  const inviteMember = useCallback(async (email: string, role: string) => {
-    try {
-      setPartialState({ isLoading: true });
-      const response = await OrganizationAPI.inviteUser(email, role as any);
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to invite member');
-      }
-      await fetchMembers();
-    } catch (error: any) {
-      console.error('[OrganizationContext] Error inviting member:', error);
-      setPartialState({ error: error.message });
-      throw error;
-    } finally {
-      setPartialState({ isLoading: false });
-    }
-  }, [fetchMembers, setPartialState]);
-
-  const removeMember = useCallback(async (memberId: string) => {
-    try {
-      setPartialState({ isLoading: true });
-      const response = await OrganizationAPI.removeMember(memberId);
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to remove member');
-      }
-      await fetchMembers();
-    } catch (error: any) {
-      console.error('[OrganizationContext] Error removing member:', error);
-      setPartialState({ error: error.message });
-      throw error;
-    } finally {
-      setPartialState({ isLoading: false });
-    }
-  }, [fetchMembers, setPartialState]);
-
-  const updateMemberRole = useCallback(async (memberId: string, role: string) => {
-    try {
-      setPartialState({ isLoading: true });
-      const response = await MembershipAPI.updateRole(memberId, role as Role);
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to update member role');
-      }
-      await fetchMembers();
-    } catch (error: any) {
-      console.error('[OrganizationContext] Error updating role:', error);
-      setPartialState({ error: error.message });
-      throw error;
-    } finally {
-      setPartialState({ isLoading: false });
-    }
-  }, [fetchMembers, setPartialState]);
-
-  const updateOrganization = useCallback(async (data: { name: string }) => {
-    try {
-      setPartialState({ isLoading: true, error: null });
-      const response = await OrganizationAPI.update(data);
-      if (response.success) {
-        // Update current organization details
-        setPartialState({
-          currentOrganization: {
-            ...state.currentOrganization!,
-            ...response.data.organization
-          }
-        });
-        // Also update in the organizations list if needed
-        const updatedOrgs = state.organizations.map(o =>
-          o.id === response.data.organization.id ? { ...o, name: response.data.organization.name } : o
-        );
-        setPartialState({ organizations: updatedOrgs });
-        TokenManager.setOrganizations(updatedOrgs);
-      }
-    } catch (error: any) {
-      console.error('[OrganizationContext] Error updating organization:', error);
-      setPartialState({ error: error.message });
-      throw error;
-    } finally {
-      setPartialState({ isLoading: false });
-    }
-  }, [state.currentOrganization, state.organizations, setPartialState]);
-
-  const leaveOrganization = useCallback(async () => {
-    try {
-      setPartialState({ isLoading: true });
-      const response = await MembershipAPI.leaveOrganization();
-      if (response.success) {
-        // Remove from local list
-        const orgId = apiClient.getOrganizationId();
-        const updatedOrgs = state.organizations.filter(o => o.id !== orgId);
-        TokenManager.setOrganizations(updatedOrgs);
-
-        setPartialState({
-          organizations: updatedOrgs,
-          currentOrganization: updatedOrgs.length > 0 ? updatedOrgs[0] : null
-        });
-
-        if (updatedOrgs.length > 0) {
-          apiClient.setOrganizationId(updatedOrgs[0].id);
-        } else {
-          apiClient.setOrganizationId('');
-        }
-      }
-    } catch (error: any) {
-      console.error('[OrganizationContext] Error leaving organization:', error);
-      setPartialState({ error: error.message });
-      throw error;
-    } finally {
-      setPartialState({ isLoading: false });
-    }
-  }, [state.organizations, setPartialState]);
-
-  const transferOwnership = useCallback(async (newOwnerId: string) => {
-    try {
-      setPartialState({ isLoading: true });
-      const response = await OrganizationAPI.transferOwnership(newOwnerId);
-      if (response.success) {
-        await refreshCurrentOrganization();
-      }
-    } catch (error: any) {
-      console.error('[OrganizationContext] Error transferring ownership:', error);
-      setPartialState({ error: error.message });
-      throw error;
-    } finally {
-      setPartialState({ isLoading: false });
-    }
-  }, [refreshCurrentOrganization, setPartialState]);
-
-  const fetchInvites = useCallback(async () => {
-    try {
-      setPartialState({ isLoading: true });
-      const response = await MembershipAPI.getPendingInvites();
-      if (response.success) {
-        setPartialState({ invites: response.data.invites });
-      }
-    } catch (error) {
-      console.error('[OrganizationContext] Error fetching invites:', error);
-    } finally {
-      setPartialState({ isLoading: false });
-    }
-  }, [setPartialState]);
-
-  const acceptInvitation = useCallback(async (token: string) => {
-    try {
-      setPartialState({ isLoading: true });
-      const response = await OrganizationAPI.acceptInvite(token);
-      if (response.success) {
-        // Refresh organizations after accepting
-        await refreshOrganizations();
-        await fetchInvites();
-      }
-    } catch (error: any) {
-      console.error('[OrganizationContext] Error accepting invite:', error);
-      setPartialState({ error: error.message });
-      throw error;
-    } finally {
-      setPartialState({ isLoading: false });
-    }
-  }, [refreshOrganizations, fetchInvites, setPartialState]);
-
-  const declineInvitation = useCallback(async (token: string) => {
-    try {
-      setPartialState({ isLoading: true });
-      const response = await OrganizationAPI.declineInvite(token);
-      if (response.success) {
-        await fetchInvites();
-      }
-    } catch (error: any) {
-      console.error('[OrganizationContext] Error declining invite:', error);
-      setPartialState({ error: error.message });
-      throw error;
-    } finally {
-      setPartialState({ isLoading: false });
-    }
-  }, [fetchInvites, setPartialState]);
-
-  // ==========================================
-  // Clear Error
-  // ==========================================
-  const clearError = useCallback(() => {
-    setPartialState({ error: null });
-  }, [setPartialState]);
-
-  // ==========================================
-  // Initial Load
-  // ==========================================
-  useEffect(() => {
-    refreshOrganizations();
-  }, [refreshOrganizations]);
-
-  // ==========================================
-  // Context Value
-  // ==========================================
-  const contextValue: OrganizationContextType = {
-    ...state,
-    switchOrganization,
-    refreshOrganizations,
-    refreshCurrentOrganization,
-    createOrganization,
-    updateOrganization,
-    fetchMembers,
-    inviteMember,
-    removeMember,
-    updateMemberRole,
-    leaveOrganization,
-    transferOwnership,
-    fetchInvites,
-    acceptInvitation,
-    declineInvitation,
-    clearError,
-  };
-
-  return (
-    <OrganizationContext.Provider value={contextValue}>
-      {children}
-    </OrganizationContext.Provider>
-  );
-};
-
-// ==========================================
-// Custom Hook
-// ==========================================
-
-export const useOrganization = (): OrganizationContextType => {
-  const context = useContext(OrganizationContext);
-
-  if (context === undefined) {
-    throw new Error('useOrganization must be used within an OrganizationProvider');
-  }
-
-  return context;
-};
-
-// ==========================================
-// Exports
-// ==========================================
-
-export { OrganizationContext };
-export type { OrganizationContextType, OrganizationState };
+export function useOrganization() {
+    const context = useContext(OrganizationContext);
+    if (!context) throw new Error("useOrganization must be used within OrganizationProvider");
+    return context;
+}

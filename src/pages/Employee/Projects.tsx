@@ -4,7 +4,6 @@ import {
     Briefcase,
     Clock,
     FileText,
-    Filter,
     Folder,
     Loader2,
     Plus,
@@ -13,8 +12,9 @@ import {
     Trash2,
     Users
 } from "lucide-react";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useState } from "react";
 import { Link } from "react-router";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useOrganization } from "../../context/OrganizationContext";
 import { Modal } from "../../components/ui/modal";
 import { Project as APIProject, ProjectAPI } from "../../services/api";
@@ -69,47 +69,12 @@ const mapProjectToUI = (project: APIProject, memberCount: number = 0): ProjectUI
         progress: project.status === "COMPLETED" ? 100 : project.status === "ARCHIVED" ? 0 : 50,
         deadline: getDeadlineText(project),
         teamCount: memberCount,
-        fileCount: 0, // API doesn't track files yet
+        fileCount: project._count?.members || 0,
         color: getProjectColor(project.id),
         description: project.description || "No description provided.",
         status: project.status,
     };
 };
-
-const CircularProgress = ({ progress, color }: { progress: number; color: string }) => {
-    const radius = 30;
-    const circumference = 2 * Math.PI * radius;
-    const offset = circumference - (progress / 100) * circumference;
-
-    return (
-        <div className="relative flex items-center justify-center w-16 h-16">
-            <svg className="w-full h-full transform -rotate-90">
-                <circle
-                    cx="32"
-                    cy="32"
-                    r={radius}
-                    stroke="rgba(255, 255, 255, 0.05)"
-                    strokeWidth="6"
-                    fill="transparent"
-                />
-                <circle
-                    cx="32"
-                    cy="32"
-                    r={radius}
-                    stroke={color}
-                    strokeWidth="6"
-                    strokeDasharray={circumference}
-                    strokeDashoffset={offset}
-                    strokeLinecap="round"
-                    fill="transparent"
-                    className="transition-all duration-1000 ease-out"
-                />
-            </svg>
-            <span className="absolute text-[11px] font-bold text-gray-900 dark:text-white">{progress}%</span>
-        </div>
-    );
-};
-
 const ProjectCard = ({
     project,
     onArchive,
@@ -121,8 +86,9 @@ const ProjectCard = ({
 }) => (
     <div className="bg-white dark:bg-[#2A2A2A]/40 border border-gray-200 dark:border-white/5 rounded p-0 overflow-hidden hover:border-gray-300 dark:hover:border-white/10 transition-all group hover:translate-y-[-2px] hover:shadow-2xl hover:shadow-black/40">
         {/* Card Header with Pattern/Gradient */}
-        <div
-            className="h-24 w-full relative overflow-hidden"
+        <Link
+            to={`/projects/${project.id}`}
+            className="h-24 w-full relative overflow-hidden block"
             style={{ backgroundColor: `${project.color}15` }}
         >
             <div
@@ -138,13 +104,15 @@ const ProjectCard = ({
             <div className="absolute top-4 right-4 bg-gray-900/40 dark:bg-black/40 backdrop-blur-md px-2 py-1 rounded text-[10px] font-bold text-white uppercase tracking-widest border border-white/10">
                 {project.role}
             </div>
-        </div>
+        </Link>
 
         {/* Content */}
         <div className="p-5 pt-8">
-            <h3 className="text-base font-bold text-gray-900 dark:text-white mb-2 group-hover:text-brand-500 transition-colors">
-                {project.name}
-            </h3>
+            <Link to={`/projects/${project.id}`}>
+                <h3 className="text-base font-bold text-gray-900 dark:text-white mb-2 group-hover:text-brand-500 transition-colors">
+                    {project.name}
+                </h3>
+            </Link>
             <p className="text-xs text-gray-500 line-clamp-2 mb-6 leading-relaxed">
                 {project.description}
             </p>
@@ -166,11 +134,10 @@ const ProjectCard = ({
                         </div>
                     </div>
                 </div>
-                <CircularProgress progress={project.progress} color={project.color} />
             </div>
 
             {/* Quick Links */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
                 <Link
                     to={`/tasks?projectId=${project.id}`}
                     className="flex flex-col items-center justify-center gap-1.5 py-2 rounded bg-white/2 hover:bg-white/5 transition-colors group/link"
@@ -178,10 +145,6 @@ const ProjectCard = ({
                     <Folder className="w-4 h-4 text-gray-500 group-hover/link:text-brand-400" />
                     <span className="text-[9px] font-bold text-gray-500 uppercase">Tasks</span>
                 </Link>
-                <button className="flex flex-col items-center justify-center gap-1.5 py-2 rounded bg-white/2 hover:bg-white/5 transition-colors group/link">
-                    <FileText className="w-4 h-4 text-gray-500 group-hover/link:text-brand-400" />
-                    <span className="text-[9px] font-bold text-gray-500 uppercase">Files</span>
-                </button>
                 <button
                     onClick={() => onDelete?.(project.id)}
                     className="flex flex-col items-center justify-center gap-1.5 py-2 rounded bg-white/2 hover:bg-red-500/10 transition-colors group/link"
@@ -229,124 +192,74 @@ const ProjectCardSkeleton = () => (
 );
 
 const Projects: React.FC = () => {
+    const queryClient = useQueryClient();
     const [search, setSearch] = useState("");
-    const [projects, setProjects] = useState<ProjectUI[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const { currentOrganization } = useOrganization();
 
     // Modal state
     const [showCreateModal, setShowCreateModal] = useState(false);
-    const [newProjectName, setNewProjectName] = useState("");
-    const [newProjectDesc, setNewProjectDesc] = useState("");
-    const [isCreating, setIsCreating] = useState(false);
+    const [newProject, setNewProject] = useState({ name: "", description: "" });
 
-    // Fetch projects from API
-    const fetchProjects = useCallback(async () => {
-        if (!currentOrganization) {
-            setProjects([]);
-            setIsLoading(false);
-            return;
-        }
-
-        setIsLoading(true);
-        setError(null);
-
-        try {
-            const response = await ProjectAPI.getAll({
-                limit: 50,
-            });
-
-            console.log("Projects API response:", response);
-            console.log("Current Org ID:", currentOrganization?.id);
-
+    // Fetch projects query
+    const {
+        data: projects = [],
+        isLoading,
+        error: fetchError
+    } = useQuery({
+        queryKey: ["projects", currentOrganization?.id],
+        queryFn: async () => {
+            const response = await ProjectAPI.getAll({ limit: 50 });
             if (response.success && Array.isArray(response.data)) {
-                // Map API projects to UI format
-                const uiProjects = response.data.map((project: APIProject) =>
-                    mapProjectToUI(project, project._count?.members || 0)
-                );
-                console.log("Mapped UI Projects:", uiProjects);
-                setProjects(uiProjects);
-            } else if (response.success) {
-                console.warn("API returned success but data is not an array:", response.data);
-                setProjects([]);
+                return response.data.map(p => mapProjectToUI(p, p._count?.members || 0));
             }
-        } catch (err) {
-            console.error("Failed to fetch projects:", err);
-            setError(err instanceof Error ? err.message : "Failed to load projects");
-        } finally {
-            setIsLoading(false);
+            return [];
+        },
+        enabled: !!currentOrganization,
+    });
+
+    // Create project mutation
+    const createMutation = useMutation({
+        mutationFn: (data: { name: string; description: string; visibility: "PRIVATE" }) => ProjectAPI.create(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["projects"] });
+            setShowCreateModal(false);
+            setNewProject({ name: "", description: "" });
         }
-    }, [currentOrganization]);
+    });
 
-    // Initial load and on org change
-    useEffect(() => {
-        fetchProjects();
-    }, [fetchProjects]);
+    // Archive project mutation
+    const archiveMutation = useMutation({
+        mutationFn: (id: string) => ProjectAPI.archive(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["projects"] });
+        }
+    });
 
-    // Create Project Handler
-    const handleCreateProject = async (e: React.FormEvent) => {
+    // Delete project mutation
+    const deleteMutation = useMutation({
+        mutationFn: (id: string) => ProjectAPI.delete(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["projects"] });
+        }
+    });
+
+    const handleCreateProject = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newProjectName.trim()) {
-            setError("Project name is required");
-            return;
-        }
-
-        try {
-            setIsCreating(true);
-            setError(null);
-
-            const response = await ProjectAPI.create({
-                name: newProjectName.trim(),
-                description: newProjectDesc.trim(),
-                visibility: "PRIVATE"
-            });
-
-            if (response.success && response.data) {
-                const newProjectUI = mapProjectToUI(response.data as APIProject, 1);
-                setProjects(prev => [newProjectUI, ...prev]);
-
-                // Reset form
-                setNewProjectName("");
-                setNewProjectDesc("");
-                setShowCreateModal(false);
-            }
-        } catch (err) {
-            console.error("Failed to create project:", err);
-            setError(err instanceof Error ? err.message : "Failed to create project");
-        } finally {
-            setIsCreating(false);
-        }
+        if (!newProject.name.trim()) return;
+        createMutation.mutate({
+            name: newProject.name.trim(),
+            description: newProject.description.trim(),
+            visibility: "PRIVATE"
+        });
     };
 
-    // Archive Project Handler
-    const handleArchiveProject = async (id: string) => {
-        try {
-            const response = await ProjectAPI.archive(id);
-            if (response.success) {
-                setProjects(prev => prev.map(p =>
-                    p.id === id ? { ...p, status: "ARCHIVED", deadline: "Archived" } : p
-                ));
-            }
-        } catch (err) {
-            console.error("Failed to archive project:", err);
-            alert(err instanceof Error ? err.message : "Failed to archive project");
-        }
+    const handleArchiveProject = (id: string) => {
+        archiveMutation.mutate(id);
     };
 
-    // Delete Project Handler
-    const handleDeleteProject = async (id: string) => {
+    const handleDeleteProject = (id: string) => {
         if (!confirm("Are you sure you want to delete this project? This action cannot be undone.")) return;
-
-        try {
-            const response = await ProjectAPI.delete(id);
-            if (response.success) {
-                setProjects(prev => prev.filter(p => p.id !== id));
-            }
-        } catch (err) {
-            console.error("Failed to delete project:", err);
-            alert(err instanceof Error ? err.message : "Failed to delete project");
-        }
+        deleteMutation.mutate(id);
     };
 
     // Filter projects by search
@@ -385,24 +298,21 @@ const Projects: React.FC = () => {
                     />
                 </div>
                 <div className="flex items-center gap-3 w-full sm:w-auto">
-                    <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-white dark:bg-[#2A2A2A]/40 border border-gray-200 dark:border-white/5 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white px-4 py-2 rounded text-sm font-bold transition-all uppercase tracking-widest text-[10px]">
-                        <Filter className="w-3.5 h-3.5" />
-                        <span>Sort By</span>
-                    </button>
+
                     <div className="h-4 w-px bg-gray-200 dark:bg-white/10 hidden sm:block"></div>
-                    <p className="text-xs font-bold text-gray-600 uppercase tracking-widest hidden sm:block">
+                    <p className="text-xs font-bold text-gray-600 hidden sm:block">
                         {isLoading ? "Loading..." : `${filteredProjects.length} Projects`}
                     </p>
                 </div>
             </div>
 
             {/* Error State */}
-            {error && (
+            {fetchError && (
                 <div className="flex flex-col items-center justify-center py-12 bg-red-500/5 border border-red-500/20 rounded mb-8">
                     <AlertCircle className="w-10 h-10 text-red-500 mb-3" />
-                    <p className="text-red-500 font-bold text-sm mb-4">{error}</p>
+                    <p className="text-red-500 font-bold text-sm mb-4">{(fetchError as Error).message}</p>
                     <button
-                        onClick={fetchProjects}
+                        onClick={() => queryClient.invalidateQueries({ queryKey: ["projects"] })}
                         className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded transition-all"
                     >
                         <RefreshCw className="w-4 h-4" />
@@ -421,7 +331,7 @@ const Projects: React.FC = () => {
             )}
 
             {/* Projects Grid */}
-            {!isLoading && !error && (
+            {!isLoading && !fetchError && (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {filteredProjects.map((project) => (
                         <ProjectCard
@@ -435,7 +345,7 @@ const Projects: React.FC = () => {
             )}
 
             {/* Empty State */}
-            {!isLoading && !error && filteredProjects.length === 0 && (
+            {!isLoading && !fetchError && filteredProjects.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-[#2A2A2A]/10 border border-dashed border-gray-200 dark:border-white/5 rounded mt-8">
                     <Folder className="w-12 h-12 text-gray-800 mb-4" />
                     <p className="text-gray-600 font-bold uppercase tracking-widest text-xs">
@@ -449,7 +359,6 @@ const Projects: React.FC = () => {
                 isOpen={showCreateModal}
                 onClose={() => {
                     setShowCreateModal(false);
-                    setError(null);
                 }}
                 className="max-w-lg"
             >
@@ -465,10 +374,10 @@ const Projects: React.FC = () => {
                     </div>
 
                     <form onSubmit={handleCreateProject} className="space-y-6">
-                        {error && (
+                        {createMutation.isError && (
                             <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded text-red-500 text-xs font-bold uppercase tracking-wider">
                                 <AlertCircle className="w-4 h-4" />
-                                <span>{error}</span>
+                                <span>{(createMutation.error as Error).message}</span>
                             </div>
                         )}
 
@@ -478,11 +387,11 @@ const Projects: React.FC = () => {
                             </label>
                             <input
                                 type="text"
-                                value={newProjectName}
-                                onChange={(e) => setNewProjectName(e.target.value)}
+                                value={newProject.name}
+                                onChange={(e) => setNewProject(prev => ({ ...prev, name: e.target.value }))}
                                 placeholder="e.g. Q1 Marketing Campaign"
                                 className="w-full bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5 rounded py-3 px-4 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-brand-500/50 transition-all"
-                                disabled={isCreating}
+                                disabled={createMutation.isPending}
                                 required
                             />
                         </div>
@@ -492,12 +401,12 @@ const Projects: React.FC = () => {
                                 Description
                             </label>
                             <textarea
-                                value={newProjectDesc}
-                                onChange={(e) => setNewProjectDesc(e.target.value)}
+                                value={newProject.description}
+                                onChange={(e) => setNewProject(prev => ({ ...prev, description: e.target.value }))}
                                 placeholder="What is this project about?"
                                 rows={4}
                                 className="w-full bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5 rounded py-3 px-4 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-brand-500/50 transition-all resize-none"
-                                disabled={isCreating}
+                                disabled={createMutation.isPending}
                             />
                         </div>
 
@@ -506,16 +415,16 @@ const Projects: React.FC = () => {
                                 type="button"
                                 onClick={() => setShowCreateModal(false)}
                                 className="flex-1 py-3 border border-gray-200 dark:border-white/10 rounded text-xs font-bold text-gray-500 uppercase tracking-widest hover:bg-gray-50 dark:hover:bg-white/5 transition-all"
-                                disabled={isCreating}
+                                disabled={createMutation.isPending}
                             >
                                 Cancel
                             </button>
                             <button
                                 type="submit"
-                                className="flex-1 py-3 bg-brand-500 hover:bg-brand-600 rounded text-xs font-bold text-white uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                                disabled={isCreating}
+                                className="flex-1 py-3 bg-brand-500 hover:bg-brand-600 rounded text-white flex items-center justify-center gap-2"
+                                disabled={createMutation.isPending}
                             >
-                                {isCreating ? (
+                                {createMutation.isPending ? (
                                     <>
                                         <Loader2 className="w-4 h-4 animate-spin" />
                                         <span>Creating...</span>

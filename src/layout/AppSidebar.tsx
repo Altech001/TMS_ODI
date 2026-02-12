@@ -13,8 +13,8 @@ import React, { useCallback, useState } from "react";
 import { Link, useLocation } from "react-router";
 
 import { useAuth } from "../context/AuthContext";
-import { useSidebar } from "../context/SidebarContext";
 import { useOrganization } from "../context/OrganizationContext";
+import { useSidebar } from "../context/SidebarContext";
 import {
   HorizontaLDots
 } from "../icons";
@@ -65,6 +65,12 @@ const navItems: NavItem[] = [
     minRole: "MEMBER",
   },
   {
+    icon: <Folder />,
+    name: "Cashbooks",
+    path: "/cashbooks",
+    minRole: "MEMBER",
+  },
+  {
     icon: <FileSpreadsheetIcon />,
     name: "My Tasks",
     path: "/tasks",
@@ -90,6 +96,7 @@ const navItems: NavItem[] = [
     path: "/personal-finance",
     minRole: "MEMBER",
   },
+
   {
     icon: <MessageCircleIcon />,
     name: "Meetings",
@@ -290,6 +297,7 @@ const AppSidebar: React.FC = () => {
         </div>
 
         <OrganisationSwitcher isExpanded={effectivelyExpanded} />
+
 
         <div className="flex flex-col overflow-y-auto duration-300 ease-linear no-scrollbar flex-1 pb-4">
           <nav className="flex flex-col gap-7 mt-4">

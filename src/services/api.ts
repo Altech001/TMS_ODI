@@ -507,7 +507,7 @@ export const MembershipAPI = {
 
     // Get pending invites for current user
     getPendingInvites: async (): Promise<{ success: boolean; data: { invites: OrganizationInvite[] } }> => {
-        return apiRequest("/organizations/invites/pending", {
+        return apiRequest("/organizations/current/invites", {
             method: "GET",
             skipOrgHeader: true,
         });
@@ -541,6 +541,7 @@ export interface Project {
     updatedAt: string;
     _count?: {
         members: number;
+        tasks: number;
     };
 }
 
@@ -1478,6 +1479,8 @@ export interface PersonalCategory {
     userId: string;
     name: string;
     type: "INCOME" | "EXPENSE";
+    icon?: string;
+    color?: string;
     budget?: number;
     createdAt: string;
     updatedAt: string;
@@ -1490,8 +1493,8 @@ export interface PersonalTransaction {
     categoryId: string;
     amount: number;
     type: "INCOME" | "EXPENSE";
-    description: string;
-    date: string;
+    note: string;
+    transactionAt: string;
     createdAt: string;
     updatedAt: string;
     account?: PersonalAccount;
@@ -1501,7 +1504,7 @@ export interface PersonalTransaction {
 export interface CreatePersonalAccountRequest {
     name: string;
     type: string;
-    balance: number;
+    initialBalance: number;
     currency?: string;
 }
 
@@ -1510,8 +1513,15 @@ export interface CreatePersonalTransactionRequest {
     categoryId: string;
     amount: number;
     type: "INCOME" | "EXPENSE";
-    description: string;
-    date?: string;
+    note: string;
+    transactionAt?: string;
+}
+
+export interface CreatePersonalCategoryRequest {
+    name: string;
+    type: "INCOME" | "EXPENSE";
+    icon?: string;
+    color?: string;
 }
 
 export interface PersonalFinanceAPIResponse<T> {
@@ -1542,6 +1552,12 @@ export const PersonalFinanceAPI = {
     // Categories
     getCategories: async (): Promise<PersonalFinanceAPIResponse<PersonalCategory[]>> => {
         return apiRequest("/personal-finance/categories", { method: "GET" });
+    },
+    createCategory: async (data: CreatePersonalCategoryRequest): Promise<PersonalFinanceAPIResponse<PersonalCategory>> => {
+        return apiRequest("/personal-finance/categories", {
+            method: "POST",
+            body: JSON.stringify(data),
+        });
     },
 
     // Transactions

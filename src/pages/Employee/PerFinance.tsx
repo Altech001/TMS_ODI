@@ -1,6 +1,5 @@
 import {
     ArrowUpRight,
-    ChevronDown,
     CreditCard,
     DollarSign,
     Loader2,
@@ -14,14 +13,15 @@ import {
     Wallet,
     X
 } from "lucide-react";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import { Modal } from "../../components/ui/modal";
+import Select from "../../components/form/Select";
 import {
-    PersonalFinanceAPI,
     PersonalAccount,
     PersonalCategory,
+    PersonalFinanceAPI,
     PersonalTransaction
 } from "../../services/api";
-import { Modal } from "../../components/ui/modal";
 
 const StatusBadge = ({ type }: { type: "INCOME" | "EXPENSE" }) => {
     const styles = {
@@ -69,17 +69,18 @@ export default function PersonalFinance() {
     const [categories, setCategories] = useState<PersonalCategory[]>([]);
     const [transactions, setTransactions] = useState<PersonalTransaction[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<"accounts" | "transactions" | "categories">("accounts");
 
     // Modal states
     const [showAccountModal, setShowAccountModal] = useState(false);
     const [showTransactionModal, setShowTransactionModal] = useState(false);
+    const [showCategoryModal, setShowCategoryModal] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Form states
     const [accountName, setAccountName] = useState("");
-    const [accountType, setAccountType] = useState("CHECKING");
+    const [accountType, setAccountType] = useState("BANK");
     const [accountBalance, setAccountBalance] = useState("");
 
     const [transAmount, setTransAmount] = useState("");
@@ -87,6 +88,10 @@ export default function PersonalFinance() {
     const [transDesc, setTransDesc] = useState("");
     const [transAccount, setTransAccount] = useState("");
     const [transCategory, setTransCategory] = useState("");
+
+    const [catName, setCatName] = useState("");
+    const [catType, setCatType] = useState<"INCOME" | "EXPENSE">("EXPENSE");
+    const [catColor, setCatColor] = useState("#3B82F6");
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -122,7 +127,7 @@ export default function PersonalFinance() {
             const response = await PersonalFinanceAPI.createAccount({
                 name: accountName.trim(),
                 type: accountType,
-                balance: parseFloat(accountBalance),
+                initialBalance: parseFloat(accountBalance),
                 currency: "USD"
             });
 
@@ -150,12 +155,11 @@ export default function PersonalFinance() {
                 categoryId: transCategory,
                 amount: parseFloat(transAmount),
                 type: transType,
-                description: transDesc.trim(),
-                date: new Date().toISOString()
+                note: transDesc.trim(),
+                transactionAt: new Date().toISOString()
             });
 
             if (response.success) {
-                // Refresh data to get updated balances and transaction list
                 fetchData();
                 setShowTransactionModal(false);
                 setTransAmount("");
@@ -165,6 +169,30 @@ export default function PersonalFinance() {
             }
         } catch (err: any) {
             setError(err.message || "Failed to record transaction");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleCreateCategory = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!catName.trim()) return;
+
+        try {
+            setIsSubmitting(true);
+            const response = await PersonalFinanceAPI.createCategory({
+                name: catName.trim(),
+                type: catType,
+                color: catColor
+            });
+
+            if (response.success) {
+                setCategories(prev => [...prev, response.data]);
+                setShowCategoryModal(false);
+                setCatName("");
+            }
+        } catch (err: any) {
+            setError(err.message || "Failed to create category");
         } finally {
             setIsSubmitting(false);
         }
@@ -195,6 +223,12 @@ export default function PersonalFinance() {
                     <p className="text-[11px] font-medium text-gray-500">Wealth management & expense tracking</p>
                 </div>
                 <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setShowCategoryModal(true)}
+                        className="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20 text-gray-900 dark:text-white px-5 py-2.5 rounded text-[11px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+                    >
+                        <Target className="w-4 h-4" /> New Category
+                    </button>
                     <button
                         onClick={() => setShowAccountModal(true)}
                         className="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20 text-gray-900 dark:text-white px-5 py-2.5 rounded text-[11px]  uppercase tracking-widest transition-all flex items-center gap-2"
@@ -267,15 +301,15 @@ export default function PersonalFinance() {
                 {activeTab === "accounts" && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
                         {isLoading ? (
-                            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white dark:bg-white/[0.02] border border-dashed border-white/10 rounded-2xl">
+                            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white dark:bg-white/[0.02] border border-dashed border-white/10 rounded-none">
                                 <Loader2 className="w-8 h-8 animate-spin text-brand-500 mb-4" />
                                 <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Loading Accounts...</p>
                             </div>
                         ) : accounts.length === 0 ? (
-                            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white dark:bg-white/[0.02] border border-dashed border-white/10 rounded-2xl">
+                            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white dark:bg-white/[0.02] border border-dashed border-white/10 rounded-none">
                                 <PieChart className="w-12 h-12 text-gray-200 dark:text-white/5 mb-4" />
-                                <p className="text-gray-500 font-medium italic">No accounts linked yet.</p>
-                                <button onClick={() => setShowAccountModal(true)} className="mt-4 text-brand-500 font-bold text-[11px] uppercase tracking-widest hover:underline">Connect Now</button>
+                                <p className="text-gray-500 font-medium">No accounts linked yet.</p>
+                                <button onClick={() => setShowAccountModal(true)} className="mt-4 text-brand-500 font-bold text-[11px] hover:underline">Connect Now</button>
                             </div>
                         ) : (
                             accounts.map(account => (
@@ -335,7 +369,7 @@ export default function PersonalFinance() {
                                                         {t.type === 'INCOME' ? <ArrowUpRight className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
                                                     </div>
                                                     <div>
-                                                        <p className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-tight">{t.description || "Unspecified Record"}</p>
+                                                        <p className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-tight">{t.note || "Unspecified Record"}</p>
                                                         <p className="text-[10px] text-gray-500 font-bold uppercase mt-0.5">{t.account?.name || "Cash / General"}</p>
                                                     </div>
                                                 </div>
@@ -352,7 +386,7 @@ export default function PersonalFinance() {
                                                 </p>
                                             </td>
                                             <td className="px-6 py-5 text-right">
-                                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{new Date(t.date).toLocaleDateString()}</p>
+                                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{new Date(t.transactionAt).toLocaleDateString()}</p>
                                             </td>
                                         </tr>
                                     ))
@@ -367,7 +401,7 @@ export default function PersonalFinance() {
                         {categories.map(cat => (
                             <div key={cat.id} className="bg-white dark:bg-[#1C1C1C] border border-gray-200 dark:border-white/5 p-6 rounded-2xl group">
                                 <div className="flex items-center justify-between mb-4">
-                                    <div className="p-2 rounded bg-brand-500/5 text-brand-500">
+                                    <div className="p-2 rounded" style={{ backgroundColor: cat.color ? `${cat.color}10` : '#3B82F610', color: cat.color || '#3B82F6' }}>
                                         <Target className="w-5 h-5" />
                                     </div>
                                     <StatusBadge type={cat.type as any} />
@@ -421,20 +455,21 @@ export default function PersonalFinance() {
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Type</label>
-                                <div className="relative">
-                                    <select
-                                        value={accountType}
-                                        onChange={(e) => setAccountType(e.target.value)}
-                                        className="w-full bg-gray-50 dark:bg-white/[0.03] border border-gray-200 dark:border-white/10 rounded py-3 px-4 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-brand-500 appearance-none font-bold uppercase cursor-pointer"
-                                    >
-                                        <option value="CHECKING">Checking</option>
-                                        <option value="SAVINGS">Savings</option>
-                                        <option value="INVESTMENT">Investment</option>
-                                        <option value="CREDIT_CARD">Credit Card</option>
-                                        <option value="CASH">Cash</option>
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
-                                </div>
+                                <Select
+                                    options={[
+                                        { value: "BANK", label: "Bank Account" },
+                                        { value: "SAVINGS", label: "Savings" },
+                                        { value: "INVESTMENT", label: "Investment" },
+                                        { value: "CREDIT_CARD", label: "Credit Card" },
+                                        { value: "CASH", label: "Cash" },
+                                        { value: "MOBILE_MONEY", label: "Mobile Money" },
+                                        { value: "OTHER", label: "Other" }
+                                    ]}
+                                    defaultValue={accountType}
+                                    placeholder="Select type"
+                                    onChange={val => setAccountType(val)}
+                                    className="h-[46px] bg-gray-50 dark:bg-white/[0.03] border-gray-200 dark:border-white/10 rounded-none text-sm font-bold uppercase"
+                                />
                             </div>
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Initial Balance</label>
@@ -497,33 +532,23 @@ export default function PersonalFinance() {
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Account</label>
-                                <div className="relative">
-                                    <select
-                                        required
-                                        value={transAccount}
-                                        onChange={(e) => setTransAccount(e.target.value)}
-                                        className="w-full bg-gray-50 dark:bg-white/[0.03] border border-gray-200 dark:border-white/10 rounded py-3 px-4 text-sm text-gray-900 dark:text-white focus:outline-none appearance-none font-bold uppercase cursor-pointer"
-                                    >
-                                        <option value="">Select...</option>
-                                        {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
-                                </div>
+                                <Select
+                                    options={accounts.map(a => ({ value: a.id, label: a.name }))}
+                                    defaultValue={transAccount}
+                                    placeholder="Select account"
+                                    onChange={val => setTransAccount(val)}
+                                    className="h-[46px] bg-gray-50 dark:bg-white/[0.03] border-gray-200 dark:border-white/10 rounded-none text-sm font-bold uppercase"
+                                />
                             </div>
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Category</label>
-                                <div className="relative">
-                                    <select
-                                        required
-                                        value={transCategory}
-                                        onChange={(e) => setTransCategory(e.target.value)}
-                                        className="w-full bg-gray-50 dark:bg-white/[0.03] border border-gray-200 dark:border-white/10 rounded py-3 px-4 text-sm text-gray-900 dark:text-white focus:outline-none appearance-none font-bold uppercase cursor-pointer"
-                                    >
-                                        <option value="">Select...</option>
-                                        {categories.filter(c => c.type === transType).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
-                                </div>
+                                <Select
+                                    options={categories.filter(c => c.type === transType).map(c => ({ value: c.id, label: c.name }))}
+                                    defaultValue={transCategory}
+                                    placeholder="Select category"
+                                    onChange={val => setTransCategory(val)}
+                                    className="h-[46px] bg-gray-50 dark:bg-white/[0.03] border-gray-200 dark:border-white/10 rounded-none text-sm font-bold uppercase"
+                                />
                             </div>
                         </div>
 
@@ -557,6 +582,84 @@ export default function PersonalFinance() {
                             <button type="button" onClick={() => setShowTransactionModal(false)} className="flex-1 py-3 bg-gray-100 dark:bg-white/5 text-gray-900 dark:text-white text-[10px]  uppercase tracking-widest rounded transition-all">Dismiss</button>
                             <button type="submit" disabled={isSubmitting} className="flex-1 py-3 bg-brand-500 text-white text-[10px]  uppercase tracking-widest rounded transition-all  ">
                                 {isSubmitting ? "Saving..." : "Record Entry"}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </Modal>
+            {/* Create Category Modal */}
+            <Modal
+                isOpen={showCategoryModal}
+                onClose={() => setShowCategoryModal(false)}
+                className="max-w-md"
+            >
+                <div className="bg-white dark:bg-[#0F0F0F] rounded-2xl">
+                    <div className="p-6 border-b border-gray-100 dark:border-white/5 flex justify-between items-center">
+                        <div>
+                            <h3 className="text-lg text-gray-900 dark:text-white uppercase tracking-tight">Create Category</h3>
+                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-1">Organize your spending & income</p>
+                        </div>
+                        <button onClick={() => setShowCategoryModal(false)} className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-full transition-all">
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
+                    <form onSubmit={handleCreateCategory} className="p-8 space-y-6">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Category Name</label>
+                            <input
+                                type="text"
+                                required
+                                value={catName}
+                                onChange={(e) => setCatName(e.target.value)}
+                                placeholder="e.g. Groceries"
+                                className="w-full bg-gray-50 dark:bg-white/[0.03] border border-gray-200 dark:border-white/10 rounded py-3 px-4 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-brand-500 transition-all font-bold placeholder:font-normal"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Type</label>
+                            <div className="flex gap-2">
+                                {(["EXPENSE", "INCOME"] as const).map(type => (
+                                    <button
+                                        key={type}
+                                        type="button"
+                                        onClick={() => setCatType(type)}
+                                        className={`flex-1 py-2.5 rounded text-[10px] uppercase tracking-[0.2em] border transition-all ${catType === type
+                                            ? type === 'INCOME' ? "bg-green-500 border-green-500 text-white" : "bg-red-500 border-red-500 text-white"
+                                            : "bg-transparent border-gray-200 dark:border-white/10 text-gray-400 hover:bg-white/5"
+                                            }`}
+                                    >
+                                        {type}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Color Theme</label>
+                            <div className="flex flex-wrap gap-3">
+                                {["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#06B6D4", "#F97316"].map(c => (
+                                    <button
+                                        key={c}
+                                        type="button"
+                                        onClick={() => setCatColor(c)}
+                                        className={`w-8 h-8 rounded-full border-2 transition-all ${catColor === c ? "border-white scale-125 shadow-lg shadow-white/10" : "border-transparent opacity-60 hover:opacity-100"}`}
+                                        style={{ backgroundColor: c }}
+                                    />
+                                ))}
+                                <input
+                                    type="color"
+                                    value={catColor}
+                                    onChange={(e) => setCatColor(e.target.value)}
+                                    className="w-8 h-8 rounded-full bg-transparent border-none p-0 cursor-pointer"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 pt-4">
+                            <button type="button" onClick={() => setShowCategoryModal(false)} className="flex-1 py-3 bg-gray-100 dark:bg-white/5 text-gray-900 dark:text-white text-[10px] uppercase tracking-widest rounded transition-all">Cancel</button>
+                            <button type="submit" disabled={isSubmitting} className="flex-1 py-3 bg-brand-500 text-white text-[10px] uppercase tracking-widest rounded transition-all disabled:opacity-50">
+                                {isSubmitting ? "Creating..." : "Save Category"}
                             </button>
                         </div>
                     </form>

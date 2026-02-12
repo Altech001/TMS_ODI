@@ -1,264 +1,211 @@
-// User & Auth Types
-export type MemberRole = 'OWNER' | 'ADMIN' | 'MANAGER' | 'MEMBER' | 'VIEWER';
-export type ProjectRole = 'LEAD' | 'MEMBER' | 'VIEWER';
-export type InviteStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED';
-
+// Auth types
 export interface User {
   id: string;
+  firstName: string;
+  lastName: string;
   email: string;
-  name: string;
-  isEmailVerified: boolean;
-  createdAt: string;
-  updatedAt: string;
+  avatar?: string;
 }
 
-export interface AuthResponse {
-  success: boolean;
-  data: {
-    user: User;
-    accessToken: string;
-    refreshToken?: string;
-  };
-  message?: string;
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
 }
 
-// Organization Types
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface SignupRequest {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+}
+
+export interface OtpVerifyRequest {
+  email: string;
+  otp: string;
+}
+
+// Organization types
+export type OrgRole = "owner" | "admin" | "manager" | "accountant" | "member" | "viewer";
+
 export interface Organization {
   id: string;
   name: string;
-  slug: string;
-  ownerId: string;
+  description?: string;
+  userRole?: string;
   createdAt: string;
-  updatedAt: string;
-  deletedAt?: string;
 }
 
-export interface OrganizationMember {
+export interface OrgMember {
   id: string;
   userId: string;
-  organizationId: string;
-  role: MemberRole;
-  joinedAt: string;
-  updatedAt: string;
-  user?: User;
-}
-
-export interface OrganizationInvite {
-  id: string;
+  firstName: string;
+  lastName: string;
   email: string;
-  organizationId: string;
-  invitedById: string;
-  role: MemberRole;
-  token: string;
-  expiresAt: string;
-  status: InviteStatus;
-  createdAt: string;
-  respondedAt?: string;
+  role: OrgRole;
+  avatar?: string;
+  user?: {
+    name: string;
+    email: string;
+    avatar?: string;
+  };
 }
 
-// Project Types
-export type ProjectVisibility = 'PRIVATE' | 'ORG_WIDE';
-export type ProjectStatus = 'ACTIVE' | 'ARCHIVED' | 'COMPLETED';
+export interface CreateOrgRequest {
+  name: string;
+  description?: string;
+}
+export interface AuditLog {
+  id: string;
+  organizationId: string;
+  userId: string;
+  entityType: string;
+  entityId: string;
+  action: string;
+  previousData?: any;
+  newData?: any;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt: string;
+  user?: {
+    id: string;
+    email: string;
+    name: string;
+  };
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  organizationId?: string;
+  type: string;
+  title: string;
+  message: string;
+  data?: any;
+  read: boolean;
+  createdAt: string;
+}
 
 export interface Project {
   id: string;
   organizationId: string;
   name: string;
   description?: string;
-  visibility: ProjectVisibility;
-  status: ProjectStatus;
+  status: "ACTIVE" | "ARCHIVED" | "COMPLETED";
   createdAt: string;
   updatedAt: string;
-  archivedAt?: string;
-  deletedAt?: string;
+  _count?: {
+    tasks: number;
+    members: number;
+  };
 }
 
-export interface ProjectMember {
-  id: string;
-  projectId: string;
-  userId: string;
-  role: ProjectRole;
-  joinedAt: string;
-  user?: User;
-}
-
-export interface ProjectStats {
-  totalTasks: number;
-  completedTasks: number;
-  inProgressTasks: number;
-  totalMembers: number;
-  totalExpenses: number;
-}
-
-// Task Types
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'BLOCKED' | 'COMPLETED' | 'CANCELLED';
-export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+export type TaskStatus = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "BLOCKED" | "COMPLETED" | "CANCELLED";
+export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
 export interface Task {
   id: string;
-  organizationId: string;
   projectId?: string;
-  parentTaskId?: string;
+  organizationId: string;
   title: string;
   description?: string;
   status: TaskStatus;
   priority: TaskPriority;
   dueDate?: string;
-  createdById: string;
   createdAt: string;
   updatedAt: string;
-  completedAt?: string;
-  deletedAt?: string;
-  assignees?: TaskAssignee[];
-  subtasks?: Task[];
-  createdBy?: User;
+  project?: {
+    id: string;
+    name: string;
+  };
+  assignees?: Array<{
+    user: {
+      id: string;
+      name: string;
+      email: string;
+    };
+  }>;
 }
 
-export interface TaskAssignee {
-  id: string;
-  taskId: string;
-  userId: string;
-  assignedAt: string;
-  user?: User;
-}
-
-export interface TaskActivityLog {
-  id: string;
-  taskId: string;
-  action: string;
-  details?: unknown;
-  createdAt: string;
-}
-
-// Expense Types
-export type ExpenseCategory = 'TRAVEL' | 'MEALS' | 'SUPPLIES' | 'SOFTWARE' | 'HARDWARE' | 'OTHER';
-export type ExpenseStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
-
-export interface Expense {
+// Finance types
+export interface Cashbook {
   id: string;
   organizationId: string;
-  projectId?: string;
-  taskId?: string;
-  title: string;
+  name: string;
   description?: string;
-  amount: number;
   currency: string;
-  category: ExpenseCategory;
-  status: ExpenseStatus;
-  receiptUrl?: string;
-  receiptMetadata?: unknown;
-  createdById: string;
-  approvedById?: string;
-  approvedAt?: string;
-  rejectionReason?: string;
+  allowBackdated: boolean;
+  allowOmitted: boolean;
+  lockDate?: string;
   createdAt: string;
   updatedAt: string;
-  deletedAt?: string;
-  createdBy?: User;
-  approvedBy?: User;
+  netBalance?: number;
 }
 
-// Notification Types
-export type NotificationType = 'TASK_ASSIGNED' | 'EXPENSE_APPROVED' | 'EXPENSE_REJECTED' | 'ORG_INVITE' | 'TASK_UPDATED' | 'TASK_COMPLETED';
+export type CashbookRole = 'VIEWER' | 'EDITOR' | 'APPROVER';
 
-export interface Notification {
+export interface CashbookMember {
   id: string;
+  cashbookId: string;
   userId: string;
-  organizationId: string;
-  type: NotificationType;
-  title: string;
-  message: string;
-  relatedId?: string;
-  isRead: boolean;
-  createdAt: string;
-  readAt?: string;
-}
-
-// Personal Finance Types
-export interface PersonalAccount {
-  id: string;
-  userId: string;
-  name: string;
-  type: string;
-  balance: number;
-  currency: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PersonalCategory {
-  id: string;
-  userId: string;
-  name: string;
-  type: string;
-  budget?: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PersonalTransaction {
-  id: string;
-  userId: string;
-  accountId: string;
-  categoryId: string;
-  amount: number;
-  type: 'INCOME' | 'EXPENSE';
-  description: string;
-  date: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Audit Log Types
-export interface AuditLog {
-  id: string;
-  userId: string;
-  organizationId: string;
-  module: string;
-  action: string;
-  resourceId?: string;
-  changes?: unknown;
-  ipAddress?: string;
-  userAgent?: string;
-  createdAt: string;
-  user?: User;
-}
-
-// Presence Types
-export interface UserPresence {
-  userId: string;
-  organizationId: string;
-  status: 'ONLINE' | 'OFFLINE' | 'AWAY';
-  lastSeen: string;
-}
-
-export interface UserPresenceHistory {
-  id: string;
-  userId: string;
-  organizationId: string;
-  status: 'ONLINE' | 'OFFLINE';
-  loginAt?: string;
-  logoutAt?: string;
-  createdAt: string;
-}
-
-// List Response Types
-export interface ListResponse<T> {
-  success: boolean;
-  data: T[];
-  pagination?: {
-    total: number;
-    page: number;
-    limit: number;
-    pages: number;
+  role: CashbookRole;
+  assignedAt: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
   };
 }
 
-// API Request/Response Envelopes
-export interface ApiListParams {
-  page?: number;
-  limit?: number;
-  search?: string;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
+export interface CashbookAccount {
+  id: string;
+  cashbookId: string;
+  name: string;
+  type: 'CASH' | 'BANK' | 'MOBILE_MONEY' | 'PETTY_CASH' | 'SAVINGS' | 'OTHER';
+  currency: string;
+  description?: string;
+  balance: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Contact {
+  id: string;
+  organizationId: string;
+  name: string;
+  type: 'CUSTOMER' | 'SUPPLIER' | 'EMPLOYEE' | 'OTHER';
+  phone?: string;
+  email?: string;
+  taxId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CashbookEntry {
+  id: string;
+  accountId: string;
+  type: 'INFLOW' | 'OUTFLOW' | 'ADJUSTMENT' | 'REVERSAL';
+  entryCategory: 'NORMAL' | 'BACKDATED' | 'OMITTED' | 'PRIOR_ADJUSTMENT';
+  status: 'ACTIVE' | 'REVERSED' | 'DELETED' | 'PENDING_DELETE_APPROVAL';
+  amount: number;
+  currency: string;
+  description: string;
+  reference?: string;
+  reason?: string;
+  transactionDate: string;
+  isReconciled: boolean;
+  contactId?: string;
+  contact?: Contact;
+  attachments?: Array<{
+    fileKey: string;
+    fileName: string;
+    fileType: string;
+    fileSize: number;
+  }>;
+  createdAt: string;
+  updatedAt: string;
 }

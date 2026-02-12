@@ -1,11 +1,9 @@
+import { ApexOptions } from "apexcharts";
 import {
     ArrowUpRight,
     Calendar,
     CheckCircle,
-    CheckSquare,
-    ChevronDown,
     DollarSign,
-    Download,
     ExternalLink,
     Eye,
     FileText,
@@ -19,12 +17,12 @@ import {
     X,
     XCircle
 } from "lucide-react";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Chart from "react-apexcharts";
-import { ApexOptions } from "apexcharts";
+import { Modal } from "../../components/ui/modal";
+import Select from "../../components/form/Select";
 import { useOrganization } from "../../context/OrganizationContext";
 import { Expense as APIExpense, ExpenseAPI, ExpenseCategory, ExpenseStatus } from "../../services/api";
-import { Modal } from "../../components/ui/modal";
 
 interface ExpenseUI {
     id: string;
@@ -416,19 +414,13 @@ const Expenses: React.FC = () => {
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Category</label>
-                                    <div className="relative">
-                                        <select
-                                            value={newCategory}
-                                            onChange={(e) => setNewCategory(e.target.value as ExpenseCategory)}
-                                            className="w-full bg-gray-50 dark:bg-[#161616] border border-gray-200 dark:border-white/10 rounded px-3 py-3 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-brand-500 transition-all font-bold appearance-none cursor-pointer uppercase"
-                                            disabled={isCreating}
-                                        >
-                                            {["TRAVEL", "MEALS", "SUPPLIES", "EQUIPMENT", "SOFTWARE", "SERVICES", "MARKETING", "OTHER"].map(cat => (
-                                                <option key={cat} value={cat}>{cat}</option>
-                                            ))}
-                                        </select>
-                                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
-                                    </div>
+                                    <Select
+                                        options={["TRAVEL", "MEALS", "SUPPLIES", "EQUIPMENT", "SOFTWARE", "SERVICES", "MARKETING", "OTHER"].map(cat => ({ value: cat, label: cat }))}
+                                        defaultValue={newCategory}
+                                        placeholder="Select category"
+                                        onChange={val => setNewCategory(val as ExpenseCategory)}
+                                        className="h-[46px] bg-gray-50 dark:bg-[#161616] border-gray-200 dark:border-white/10 rounded-none text-sm font-bold uppercase"
+                                    />
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Amount</label>

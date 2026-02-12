@@ -1,4 +1,12 @@
-import { useState } from "react";
+import * as React from "react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
+import { ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface Option {
   value: string;
@@ -22,44 +30,48 @@ const Select: React.FC<SelectProps> = ({
   defaultValue = "",
   disabled = false,
 }) => {
-  // Manage the selected value
-  const [selectedValue, setSelectedValue] = useState<string>(defaultValue);
+  const [selectedValue, setSelectedValue] = React.useState<string>(defaultValue);
 
-  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
+  const handleSelect = (value: string) => {
     setSelectedValue(value);
-    onChange(value); // Trigger parent handler
+    onChange(value);
   };
 
+  const selectedOption = options.find(o => o.value === selectedValue);
+
   return (
-    <select
-      disabled={disabled}
-      className={`h-11 w-full appearance-none rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 pr-11 text-sm shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 ${selectedValue
-        ? "text-gray-800 dark:text-white/90"
-        : "text-gray-400 dark:text-gray-400"
-        } ${className}`}
-      value={selectedValue}
-      onChange={handleChange}
-    >
-      {/* Placeholder option */}
-      <option
-        value=""
-        disabled
-        className="text-gray-700 dark:bg-gray-900 dark:text-gray-400"
-      >
-        {placeholder}
-      </option>
-      {/* Map over options */}
-      {options.map((option) => (
-        <option
-          key={option.value}
-          value={option.value}
-          className="text-gray-700 dark:bg-gray-900 dark:text-gray-400"
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          className={cn(
+            "flex h-11 w-full items-center justify-between rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-sm transition-all focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/90 dark:focus:border-brand-800",
+            !selectedValue && "text-gray-400 dark:text-white/30",
+            className
+          )}
         >
-          {option.label}
-        </option>
-      ))}
-    </select>
+          <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
+          <ChevronDown className="h-4 w-4 opacity-50 ml-2" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[200px] border-gray-100 dark:border-white/5 bg-white dark:bg-[#1C1C1C] p-1 shadow-2xl">
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            onClick={() => handleSelect(option.value)}
+            className={cn(
+              "rounded-md px-3 py-2 cursor-pointer transition-colors",
+              selectedValue === option.value
+                ? "bg-brand-500 text-white"
+                : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/5"
+            )}
+          >
+            {option.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 };
 

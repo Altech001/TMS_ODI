@@ -2,6 +2,7 @@ import { ChevronDown, LogOut, Settings, User } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
+import { useOrganization } from "../context/OrganizationContext";
 
 interface UserWidgetProps {
     isExpanded: boolean;
@@ -11,7 +12,8 @@ const UserWidget: React.FC<UserWidgetProps> = ({ isExpanded }) => {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
-    const { user, organizations, logout, isAuthenticated } = useAuth();
+    const { user, logout, isAuthenticated } = useAuth();
+    const { currentOrganization } = useOrganization();
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -27,8 +29,7 @@ const UserWidget: React.FC<UserWidgetProps> = ({ isExpanded }) => {
     }, [isOpen]);
 
     // Get current organization role
-    const currentOrg = organizations[0];
-    const userRole = currentOrg?.role || "Member";
+    const userRole = currentOrganization?.role || "Member";
 
     // Format role for display
     const formatRole = (role: string): string => {
@@ -59,7 +60,7 @@ const UserWidget: React.FC<UserWidgetProps> = ({ isExpanded }) => {
         return null;
     }
 
-    const displayName = user.name || "User";
+    const displayName = user.firstName || "User";
     const displayEmail = user.email || "";
     const avatar = getInitials(displayName);
 

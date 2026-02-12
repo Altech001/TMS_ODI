@@ -1,206 +1,240 @@
-import React, { useState, useRef, useEffect } from "react";
-import { ChevronDown, Check, Plus, Loader2, Building2 } from "lucide-react";
+import { Building2, CheckCircle, ChevronDown, Loader2, Plus, X } from "lucide-react";
+import React, { useState } from "react";
 import { useOrganization } from "../context/OrganizationContext";
+import { Modal } from "@/components/ui/modal";
+import { Input } from "@/components/ui/input";
+import Label from "@/components/form/Label";
 
-const OrganisationSwitcher: React.FC<{ isExpanded: boolean }> = ({ isExpanded }) => {
-    const {
-        currentOrganization,
-        organizations,
-        isSwitching,
-        isLoading,
-        switchOrganization,
-    } = useOrganization();
+interface OrganisationSwitcherProps {
+    isExpanded: boolean;
+}
 
-    const [isOpen, setIsOpen] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
+// Create Organization Modal
+const CreateOrgModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onCreate: (name: string) => Promise<void>;
+    isLoading: boolean;
+}> = ({ isOpen, onClose, onCreate, isLoading }) => {
+    const [name, setName] = useState("");
+    const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError(null);
 
-    // Get initials from org name
-    const getInitials = (name: string | undefined): string => {
-        if (!name) return "OR";
-        return name
-            .split(" ")
-            .filter(Boolean)
-            .map(word => word[0])
-            .join("")
-            .toUpperCase()
-            .slice(0, 2);
+        if (!name.trim()) {
+            setError("Organization name is required");
+            return;
+        }
+
+        if (name.trim().length < 2) {
+            setError("Name must be at least 2 characters");
+            return;
+        }
+
+        try {
+            await onCreate(name.trim());
+            setName("");
+            onClose();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to create organization");
+        }
     };
 
-    // Handle organization selection
-    const handleSelectOrg = async (orgId: string) => {
-        setIsOpen(false);
-        await switchOrganization(orgId);
-    };
-
-    // Loading state
-    if (isLoading && !currentOrganization) {
-        return (
-            <div className="flex justify-center py-4">
-                <Loader2 className="w-5 h-5 text-brand-500 animate-spin" />
-            </div>
-        );
-    }
-
-    // No organizations
-    if (organizations.length === 0) {
-        return (
-            <div className="px-3 mb-6">
-                <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                    <Building2 className="w-4 h-4 text-amber-500" />
-                    <span className="text-xs text-amber-500 font-medium">No organization</span>
-                </div>
-            </div>
-        );
-    }
-
-    // Collapsed view
-    if (!isExpanded) {
-        return (
-            <div className="flex justify-center py-2 relative" ref={dropdownRef}>
-                <button
-                    onClick={() => setIsOpen(!isOpen)}
-                    className={`w-10 h-10 flex items-center justify-center text-xs font-bold rounded-lg transition-all ${isSwitching
-                        ? 'bg-brand-500/20 text-brand-500'
-                        : 'bg-gray-100 dark:bg-[#2A2A2A] text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-[#3A3A3A]'
-                        }`}
-                >
-                    {isSwitching ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                        getInitials(currentOrganization?.name || "ORG")
-                    )}
-                </button>
-
-                {/* Collapsed Dropdown */}
-                {isOpen && (
-                    <div className="absolute left-full ml-2 top-0 py-2 bg-white dark:bg-[#2A2A2A] border border-gray-200 dark:border-white/10 rounded-lg shadow-2xl z-[100] min-w-[200px] animate-in fade-in zoom-in-95 duration-200">
-                        <p className="px-4 py-2 text-[10px] text-gray-500 tracking-widest uppercase">Switch Organization</p>
-                        <div className="max-h-[240px] overflow-y-auto">
-                            {organizations.map((org) => (
-                                <button
-                                    key={org.id}
-                                    onClick={() => handleSelectOrg(org.id)}
-                                    disabled={isSwitching}
-                                    className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors disabled:opacity-50 ${currentOrganization?.id === org.id
-                                        ? "text-gray-900 dark:text-white bg-brand-500/5"
-                                        : "text-gray-600 dark:text-gray-400"
-                                        }`}
-                                >
-                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${currentOrganization?.id === org.id
-                                        ? 'bg-brand-500 text-white'
-                                        : 'bg-gray-100 dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5'
-                                        }`}>
-                                        {getInitials(org.name)}
-                                    </div>
-                                    <div className="flex-1 text-left">
-                                        <p className="text-sm font-medium truncate">{org.name || 'Unknown Organization'}</p>
-                                        <p className="text-[10px] opacity-50 uppercase">{org.role || 'Member'}</p>
-                                    </div>
-                                    {currentOrganization?.id === org.id && <Check className="w-4 h-4 text-brand-500" />}
-                                </button>
-                            ))}
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} showCloseButton={false}>
+            <div className="bg-white dark:bg-[#1C1C1C] w-full">
+                <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-white/5">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-brand-500/10 rounded-lg flex items-center justify-center">
+                            <Building2 className="w-5 h-5 text-brand-500" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Create Workspace</h2>
+                            <p className="text-xs text-gray-500">Start a new business workspace</p>
                         </div>
                     </div>
-                )}
+                    <button
+                        onClick={onClose}
+                        className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="p-6 space-y-5">
+                    <div>
+                        <Label>Business Name</Label>
+                        <Input
+                            type="text"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="My Business"
+                            className="w-full bg-gray-50 dark:bg-[#2A2A2A] py-3 px-4 text-sm text-gray-900 dark:text-white placeholder:text-gray-400"
+                            disabled={isLoading}
+                            autoFocus
+                        />
+                    </div>
+
+                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                        <p className="text-xs text-blue-600 dark:text-blue-400">
+                            <strong>Note:</strong> You will be the owner of this business with full owner privileges.
+                            You can invite team members after creation.
+                        </p>
+                    </div>
+
+                    {error && (
+                        <div className="flex items-center gap-2 text-red-500 text-sm bg-red-500/10 p-3 rounded-lg">
+                            <span>{error}</span>
+                        </div>
+                    )}
+
+                    <div className="flex items-center gap-3 pt-2">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="flex-1 py-3 px-4 border border-gray-200 dark:border-white/10 rounded-lg text-sm font-bold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 transition-all"
+                            disabled={isLoading}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            className="flex-1 py-3 px-4 bg-brand-500 hover:bg-brand-600 rounded text-sm font-semibold text-white transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            disabled={isLoading}
+                        >
+                            {isLoading ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Creating...
+                                </>
+                            ) : (
+                                <>
+                                    <Plus className="w-4 h-4" />
+                                    Create
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </Modal>
+    );
+};
+
+const OrganisationSwitcher: React.FC<OrganisationSwitcherProps> = ({ isExpanded }) => {
+    const { currentOrganization, organizations, switchOrganization, createOrganization } = useOrganization();
+    const [isOpen, setIsOpen] = useState(false);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
+
+    const handleSwitch = async (orgId: string) => {
+        await switchOrganization(orgId);
+        setIsOpen(false);
+    };
+
+    const handleCreate = async (name: string) => {
+        setIsCreating(true);
+        try {
+            await createOrganization(name);
+        } finally {
+            setIsCreating(false);
+        }
+    };
+
+    // Collapsed state — just show icon
+    if (!isExpanded) {
+        return (
+            <div className="flex justify-center px-0 mb-2">
+                <button
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="w-11 h-11 rounded-lg flex items-center justify-center bg-brand-500/10 text-brand-500 hover:bg-brand-500/20 transition-all"
+                    title={currentOrganization?.name || "Select Organization"}
+                >
+                    <Building2 className="w-5 h-5" />
+                </button>
             </div>
         );
     }
 
-    // Expanded view
     return (
-        <div className="relative px-3 mb-6" ref={dropdownRef}>
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                disabled={isSwitching}
-                className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all duration-200 group ${isSwitching
-                    ? 'bg-brand-500/5 border-brand-500/20'
-                    : 'bg-white dark:bg-[#2A2A2A]/50 border-gray-200 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20'
-                    }`}
-            >
-                {/* Org Logo/Initials */}
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 ${isSwitching
-                    ? 'bg-brand-500/20 text-brand-500'
-                    : 'bg-brand-500 text-white'
-                    }`}>
-                    {isSwitching ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                        getInitials(currentOrganization?.name || "ORG")
-                    )}
-                </div>
-
-                {/* Org Info */}
-                <div className="flex-1 text-left min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+        <>
+            <div className="relative px-3 mb-2">
+                <button
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="flex items-center gap-2 w-full bg-gray-50 dark:bg-[#2A2A2A] border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2.5 hover:border-brand-500/50 transition-all cursor-pointer"
+                >
+                    <div className="w-7 h-7 bg-brand-500 rounded flex items-center justify-center flex-shrink-0">
+                        <Building2 className="w-3.5 h-3.5 text-white" />
+                    </div>
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white flex-1 text-left truncate">
                         {currentOrganization?.name || "Select Organization"}
-                    </p>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">
-                        {isSwitching ? 'Switching...' : (currentOrganization?.role || organizations.length + ' orgs')}
-                    </p>
-                </div>
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                </button>
 
-                {/* Chevron */}
-                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`} />
-            </button>
+                {isOpen && (
+                    <>
+                        <div
+                            className="fixed inset-0 z-[100]"
+                            onClick={() => setIsOpen(false)}
+                        />
+                        <div className="absolute left-3 right-3 top-full mt-1 z-[101] bg-white dark:bg-[#2A2A2A] border border-gray-200 dark:border-white/10 rounded-none shadow-xl py-2">
+                            <div className="px-3 py-2 border-b border-gray-200 dark:border-white/10">
+                                <p className="text-[10px] font-bold text-gray-500">My Business / Personal</p>
+                            </div>
 
-            {/* Dropdown */}
-            {isOpen && (
-                <div className="absolute left-3 right-3 mt-2 py-2 bg-white dark:bg-[#2A2A2A] border border-gray-200 dark:border-white/10 rounded-lg shadow-2xl z-[100] animate-in fade-in zoom-in-95 duration-200">
-                    <p className="px-4 py-2 text-[10px] text-gray-500 tracking-widest uppercase">Your Organizations</p>
+                            <div className="max-h-[240px] overflow-y-auto">
+                                {organizations.map((org) => (
+                                    <button
+                                        key={org.id}
+                                        onClick={() => handleSwitch(org.id)}
+                                        className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors ${currentOrganization?.id === org.id ? "bg-brand-500/5" : ""
+                                            }`}
+                                    >
+                                        <div className={`w-7 h-7 rounded flex items-center justify-center ${currentOrganization?.id === org.id ? "bg-brand-500" : "bg-gray-200 dark:bg-white/10"
+                                            }`}>
+                                            <Building2 className={`w-3.5 h-3.5 ${currentOrganization?.id === org.id ? "text-white" : "text-gray-500 dark:text-gray-400"
+                                                }`} />
+                                        </div>
+                                        <div className="flex-1 text-left min-w-0">
+                                            <p className="text-xs font-semibold text-gray-900 dark:text-white ">{org.name}</p>
+                                            <p className="text-[8px] text-gray-500">{org.role}</p>
+                                        </div>
+                                        {currentOrganization?.id === org.id && (
+                                            <CheckCircle className="w-4 h-4 text-brand-500 flex-shrink-0" />
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
 
-                    <div className="max-h-[240px] overflow-y-auto no-scrollbar">
-                        {organizations.map((org) => (
-                            <button
-                                key={org.id}
-                                onClick={() => handleSelectOrg(org.id)}
-                                disabled={isSwitching}
-                                className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors disabled:opacity-50 ${currentOrganization?.id === org.id
-                                    ? "text-gray-900 dark:text-white bg-brand-500/5"
-                                    : "text-gray-600 dark:text-gray-400"
-                                    }`}
-                            >
-                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${currentOrganization?.id === org.id
-                                    ? 'bg-brand-500 text-white'
-                                    : 'bg-gray-100 dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/5'
-                                    }`}>
-                                    {getInitials(org.name)}
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <p className="text-sm font-medium">{org.name || 'Unknown Organization'}</p>
-                                    <p className="text-[10px] opacity-50 uppercase">{org.role || 'Member'}</p>
-                                </div>
-                                {currentOrganization?.id === org.id && <Check className="w-4 h-4 text-brand-500" />}
-                            </button>
-                        ))}
-                    </div>
+                            <div className="border-t border-gray-200 dark:border-white/10 pt-1 mt-1">
+                                <button
+                                    onClick={() => {
+                                        setShowCreateModal(true);
+                                        setIsOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors text-brand-500"
+                                >
+                                    <div className="w-7 h-7 rounded bg-brand-500/10 flex items-center justify-center">
+                                        <Plus className="w-3.5 h-3.5" />
+                                    </div>
+                                    <span className="text-sm font-normal">Create New Business</span>
+                                </button>
+                            </div>
+                        </div>
+                    </>
+                )}
+            </div>
 
-                    {/* Create New */}
-                    <div className="mt-2 pt-2 border-t border-gray-200 dark:border-white/5">
-                        <button
-                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
-                            onClick={() => {
-                                setIsOpen(false);
-                                // Navigate to organization page to create new
-                                window.location.href = '/organisation';
-                            }}
-                        >
-                            <Plus className="w-4 h-4" />
-                            <span>Create New</span>
-                        </button>
-                    </div>
-                </div>
-            )}
-        </div>
+            <CreateOrgModal
+                isOpen={showCreateModal}
+                onClose={() => setShowCreateModal(false)}
+                onCreate={handleCreate}
+                isLoading={isCreating}
+            />
+        </>
     );
 };
 

@@ -1,24 +1,21 @@
 import { Route, BrowserRouter as Router, Routes } from "react-router";
+import ProtectedRoute from "./components/auth/ProtectedRoute";
 import { ScrollToTop } from "./components/common/ScrollToTop";
 import { AuthProvider } from "./context/AuthContext";
-import { PresenceProvider } from "./context/PresenceContext";
 import { NotificationProvider } from "./context/NotificationContext";
 import { OrganizationProvider } from "./context/OrganizationContext";
-import ProtectedRoute from "./components/auth/ProtectedRoute";
+import { OrgProvider } from "./context/OrgContext";
+import { PresenceProvider } from "./context/PresenceContext";
 import AppLayout from "./layout/AppLayout";
+import FinancalSpt from "./pages/Admin/FinancalSpt";
+import OrganSettings from "./pages/Admin/OrganSettings";
+import ProjectSights from "./pages/Admin/ProjectSights";
 import ResetPasswordPage from "./pages/AuthPages/ResetPassword";
 import SignIn from "./pages/AuthPages/SignIn";
 import SignUp from "./pages/AuthPages/SignUp";
 import VerifyEmail from "./pages/AuthPages/VerifyEmail";
-import FinancalSpt from "./pages/Admin/FinancalSpt";
-import OrganSettings from "./pages/Admin/OrganSettings";
-import ProjectSights from "./pages/Admin/ProjectSights";
-import HRDashboard from "./pages/HumanRs/Dashboard";
-import LeavesPerformance from "./pages/HumanRs/Leaves_petformance";
-import HRPresence from "./pages/HumanRs/Presence";
 import Blank from "./pages/Blank";
-import Calendar from "./pages/Calendar";
-import BarChart from "./pages/Charts/BarChart";
+import Book from "./pages/Cashbooks/Book";
 import EmployeeDashboard from "./pages/Employee/Dashboard";
 import Expense from "./pages/Employee/Expense";
 import Organisation from "./pages/Employee/Organisation";
@@ -26,20 +23,21 @@ import PersonalFinance from "./pages/Employee/PerFinance";
 import Planner from "./pages/Employee/Planner";
 import Presence from "./pages/Employee/Presence";
 import Projects from "./pages/Employee/Projects";
+import ProjectDetails from "./pages/Employee/ProjectDetails";
 import Tasks from "./pages/Employee/Tasks";
-import Settings from "./pages/Settings";
-import FormElements from "./pages/Forms/FormElements";
+import HRDashboard from "./pages/HumanRs/Dashboard";
+import LeavesPerformance from "./pages/HumanRs/Leaves_petformance";
+import HRPresence from "./pages/HumanRs/Presence";
 import NotFound from "./pages/OtherPage/NotFound";
 import Unauthorized from "./pages/OtherPage/Unauthorized";
+import Settings from "./pages/Settings";
 import Orgmgt from "./pages/SuperAdmin/Orgmgt";
 import SecurityAudit from "./pages/SuperAdmin/SecurityAudit";
 import UserDir from "./pages/SuperAdmin/UserDir";
-import BasicTables from "./pages/Tables/BasicTables";
-import Badges from "./pages/UiElements/Badges";
-import Buttons from "./pages/UiElements/Buttons";
-import Images from "./pages/UiElements/Images";
-import Videos from "./pages/UiElements/Videos";
 import UserProfiles from "./pages/UserProfiles";
+import Cashbooks from "./pages/Cashbooks/Cashbooks";
+import CashbookDetails from "./pages/Cashbooks/CashbookDetails";
+import CashbookMembers from "./pages/Cashbooks/CashbookMembers";
 
 export default function App() {
   return (
@@ -51,11 +49,13 @@ export default function App() {
           <Route element={
             <ProtectedRoute>
               <OrganizationProvider>
-                <PresenceProvider>
-                  <NotificationProvider>
-                    <AppLayout />
-                  </NotificationProvider>
-                </PresenceProvider>
+                <OrgProvider>
+                  <PresenceProvider>
+                    <NotificationProvider>
+                      <AppLayout />
+                    </NotificationProvider>
+                  </PresenceProvider>
+                </OrgProvider>
               </OrganizationProvider>
             </ProtectedRoute>
           }>
@@ -65,19 +65,13 @@ export default function App() {
 
             {/* Common Pages - All authenticated users */}
             <Route path="/profile" element={<UserProfiles />} />
-            <Route path="/calendar" element={<Calendar />} />
             <Route path="/blank" element={<Blank />} />
             <Route path="/organisation" element={<Organisation />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/cashbooks" element={<Cashbooks />} />
+            <Route path="/cashbooks/:id" element={<CashbookDetails />} />
+            <Route path="/cashbooks/:id/members" element={<CashbookMembers />} />
 
-            {/* Forms & Tables - All authenticated users */}
-            <Route path="/form-elements" element={<FormElements />} />
-            <Route path="/basic-tables" element={<BasicTables />} />
-            <Route path="/bar-chart" element={<BarChart />} />
-            <Route path="/badge" element={<Badges />} />
-            <Route path="/buttons" element={<Buttons />} />
-            <Route path="/images" element={<Images />} />
-            <Route path="/videos" element={<Videos />} />
 
             {/* Employee Routes - MEMBER and above */}
             <Route path="/tasks" element={
@@ -88,6 +82,11 @@ export default function App() {
             <Route path="/projects" element={
               <ProtectedRoute allowedRoles={["OWNER", "ADMIN", "MANAGER", "MEMBER"]}>
                 <Projects />
+              </ProtectedRoute>
+            } />
+            <Route path="/projects/:projectId" element={
+              <ProtectedRoute allowedRoles={["OWNER", "ADMIN", "MANAGER", "MEMBER"]}>
+                <ProjectDetails />
               </ProtectedRoute>
             } />
             <Route path="/presence" element={
@@ -165,6 +164,7 @@ export default function App() {
 
           {/* Auth Routes - Public */}
           <Route path="/signin" element={<SignIn />} />
+          <Route path="/login" element={<SignIn />} />
           <Route path="/signup" element={<SignUp />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/verify-email" element={<VerifyEmail />} />

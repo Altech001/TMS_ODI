@@ -1,0 +1,23 @@
+src/layout/CreateOrgDialog.tsx(2,24): error TS2307: Cannot find module '@/contexts/OrgContext' or its corresponding type declarations.
+src/layout/CreateOrgDialog.tsx(15,26): error TS2307: Cannot find module '@/hooks/use-toast' or its corresponding type declarations.
+src/layout/OrgSwitcher.tsx(1,24): error TS2307: Cannot find module '@/contexts/OrgContext' or its corresponding type declarations.
+src/layout/OrgSwitcher.tsx(7,3): error TS2724: '"@/components/ui/dropdown-menu"' has no exported member named 'DropdownMenuLabel'. Did you mean 'DropdownMenu'?
+src/layout/OrgSwitcher.tsx(8,3): error TS2305: Module '"@/components/ui/dropdown-menu"' has no exported member 'DropdownMenuSeparator'.
+src/layout/OrgSwitcher.tsx(33,31): error TS7006: Parameter 'org' implicitly has an 'any' type.
+src/layout/ProtectedRoute.tsx(2,25): error TS2307: Cannot find module '@/contexts/AuthContext' or its corresponding type declarations.
+src/pages/AuthPages/ResetPassword.tsx(13,13): error TS2339: Property 'requestPasswordReset' does not exist on type 'AuthContextType'.
+src/pages/AuthPages/ResetPassword.tsx(13,35): error TS2339: Property 'resetPassword' does not exist on type 'AuthContextType'.
+src/pages/Cashbooks/CashbookDetails.tsx(1,23): error TS2307: Cannot find module '@/components/ui/badge' or its corresponding type declarations.
+src/pages/Cashbooks/CashbookDetails.tsx(3,22): error TS2307: Cannot find module '@/components/ui/card' or its corresponding type declarations.
+src/pages/Cashbooks/CashbookDetails.tsx(16,5): error TS2724: '"@/components/ui/dropdown-menu"' has no exported member named 'DropdownMenuLabel'. Did you mean 'DropdownMenu'?
+src/pages/Cashbooks/CashbookDetails.tsx(17,5): error TS2305: Module '"@/components/ui/dropdown-menu"' has no exported member 'DropdownMenuSeparator'.
+src/pages/Cashbooks/CashbookDetails.tsx(26,5): error TS2724: '"@/components/ui/table"' has no exported member named 'TableHead'. Did you mean 'TableHeader'?
+src/pages/Cashbooks/CashbookDetails.tsx(31,24): error TS2307: Cannot find module '@/contexts/OrgContext' or its corresponding type declarations.
+src/pages/Cashbooks/CashbookDetails.tsx(32,26): error TS2307: Cannot find module '@/hooks/use-toast' or its corresponding type declarations.
+src/pages/Cashbooks/CashbookDetails.tsx(524,56): error TS2322: Type '{ children: Element; colSpan: number; className: string; }' is not assignable to type 'IntrinsicAttributes & TableCellProps'.
+  Property 'colSpan' does not exist on type 'IntrinsicAttributes & TableCellProps'.
+src/pages/Cashbooks/Cashbooks.tsx(16,26): error TS2307: Cannot find module '@/hooks/use-toast' or its corresponding type declarations.
+src/pages/Employee/Dashboard.tsx(147,25): error TS6133: 'seconds' is declared but its value is never read.
+src/pages/Employee/Dashboard.tsx(205,11): error TS6133: 'formatTime' is declared but its value is never read.
+src/pages/Employee/ProjectDetails.tsx(154,42): error TS6133: 'tasksLoading' is declared but its value is never read.
+src/pages/Settings/Invitations.tsx(5,5): error TS6133: 'Check' is declared but its value is never read.

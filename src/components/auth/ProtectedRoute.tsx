@@ -1,6 +1,7 @@
 import React from "react";
 import { Navigate, useLocation } from "react-router";
 import { useAuth } from "../../context/AuthContext";
+import { useOrganization } from "../../context/OrganizationContext";
 
 interface ProtectedRouteProps {
     children: React.ReactNode;
@@ -8,12 +9,34 @@ interface ProtectedRouteProps {
 }
 
 /**
+ * Inner component that checks role-based access.
+ * This is separated so that useOrganization() is only called
+ * when we're inside an OrganizationProvider (i.e. when allowedRoles is specified).
+ */
+const RoleGate: React.FC<{
+    children: React.ReactNode;
+    allowedRoles: Array<"OWNER" | "ADMIN" | "MANAGER" | "MEMBER" | "VIEWER">;
+}> = ({ children, allowedRoles }) => {
+    const { organizations } = useOrganization();
+
+    // Get the user's role from their organizations (use the first/current organization)
+    const currentOrg = organizations[0];
+    const userRole = currentOrg?.role;
+
+    if (!userRole || !allowedRoles.includes(userRole)) {
+        return <Navigate to="/unauthorized" replace />;
+    }
+
+    return <>{children}</>;
+};
+
+/**
  * ProtectedRoute component that handles:
  * 1. Authentication check - redirects to signin if not authenticated
  * 2. Role-based access - redirects to unauthorized if user doesn't have required role
  */
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
-    const { isAuthenticated, isLoading, organizations } = useAuth();
+    const { isAuthenticated, isLoading } = useAuth();
     const location = useLocation();
 
     // Show nothing while loading auth state
@@ -33,15 +56,13 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
         return <Navigate to="/signin" state={{ from: location }} replace />;
     }
 
-    // Check role-based access if roles are specified
+    // If role checking is needed, delegate to RoleGate (which uses OrganizationProvider)
     if (allowedRoles && allowedRoles.length > 0) {
-        // Get the user's role from their organizations (use the first/current organization)
-        const currentOrg = organizations[0];
-        const userRole = currentOrg?.role;
-
-        if (!userRole || !allowedRoles.includes(userRole)) {
-            return <Navigate to="/unauthorized" replace />;
-        }
+        return (
+            <RoleGate allowedRoles={allowedRoles}>
+                {children}
+            </RoleGate>
+        );
     }
 
     return <>{children}</>;

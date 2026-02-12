@@ -1,4 +1,4 @@
-type BadgeVariant = "light" | "solid";
+type BadgeVariant = "light" | "solid" | "outline";
 type BadgeSize = "sm" | "md";
 type BadgeColor =
   | "primary"
@@ -10,11 +10,12 @@ type BadgeColor =
   | "dark";
 
 interface BadgeProps {
-  variant?: BadgeVariant; // Light or solid variant
+  variant?: BadgeVariant; // Light, solid, or outline variant
   size?: BadgeSize; // Badge size
   color?: BadgeColor; // Badge color
   startIcon?: React.ReactNode; // Icon at the start
   endIcon?: React.ReactNode; // Icon at the end
+  className?: string; // Additional classes
   children: React.ReactNode; // Badge content
 }
 
@@ -24,10 +25,11 @@ const Badge: React.FC<BadgeProps> = ({
   size = "md",
   startIcon,
   endIcon,
+  className = "",
   children,
 }) => {
   const baseStyles =
-    "inline-flex items-center px-2.5 py-0.5 justify-center gap-1 rounded-full font-medium";
+    "inline-flex items-center px-2.5 py-0.5 justify-center gap-1 rounded-full font-medium transition-all duration-300";
 
   // Define size styles
   const sizeStyles = {
@@ -36,7 +38,7 @@ const Badge: React.FC<BadgeProps> = ({
   };
 
   // Define color styles for variants
-  const variants = {
+  const variants: Record<BadgeVariant, Record<BadgeColor, string>> = {
     light: {
       primary:
         "bg-brand-50 text-brand-500 dark:bg-brand-500/15 dark:text-brand-400",
@@ -59,14 +61,23 @@ const Badge: React.FC<BadgeProps> = ({
       light: "bg-gray-400 dark:bg-white/5 text-white dark:text-white/80",
       dark: "bg-gray-700 text-white dark:text-white",
     },
+    outline: {
+      primary: "border border-brand-500 text-brand-500 bg-transparent",
+      success: "border border-success-500 text-success-500 bg-transparent",
+      error: "border border-error-500 text-error-500 bg-transparent",
+      warning: "border border-warning-500 text-warning-500 bg-transparent",
+      info: "border border-blue-light-500 text-blue-light-500 bg-transparent",
+      light: "border border-gray-200 text-gray-500 dark:border-white/10 dark:text-gray-400 bg-transparent",
+      dark: "border border-gray-700 text-gray-700 dark:border-white/20 dark:text-white bg-transparent",
+    },
   };
 
   // Get styles based on size and color variant
   const sizeClass = sizeStyles[size];
-  const colorStyles = variants[variant][color];
+  const colorStyles = variants[variant]?.[color] || "";
 
   return (
-    <span className={`${baseStyles} ${sizeClass} ${colorStyles}`}>
+    <span className={`${baseStyles} ${sizeClass} ${colorStyles} ${className}`}>
       {startIcon && <span className="mr-1">{startIcon}</span>}
       {children}
       {endIcon && <span className="ml-1">{endIcon}</span>}

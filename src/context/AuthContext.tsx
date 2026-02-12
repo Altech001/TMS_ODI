@@ -1,150 +1,131 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { AuthAPI, TokenManager, User, Organization } from "../services/api";
-
-type Role = "OWNER" | "ADMIN" | "MANAGER" | "MEMBER" | "VIEWER";
-
-const ROLE_HIERARCHY: Record<Role, number> = {
-    OWNER: 5,
-    ADMIN: 4,
-    MANAGER: 3,
-    MEMBER: 2,
-    VIEWER: 1,
-};
+import React, { createContext, useContext } from "react";
+import type { User } from "@/types";
+import apiClient from "@/lib/api-client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface AuthContextType {
-    user: User | null;
-    organizations: Organization[];
-    currentRole: Role | null;
-    isAuthenticated: boolean;
-    isLoading: boolean;
-    login: (email: string, password: string) => Promise<void>;
-    signup: (email: string, password: string, name: string, organizationName: string) => Promise<void>;
-    logout: () => void;
-    verifyOtp: (email: string, code: string) => Promise<void>;
-    resetPassword: (email: string, code: string, newPassword: string) => Promise<void>;
-    requestPasswordReset: (email: string) => Promise<void>;
-    hasRole: (minRole: Role) => boolean;
+  user: User | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<{ requiresOtp: boolean; email: string }>;
+  signup: (email: string, password: string, name: string, organizationName: string) => Promise<void>;
+  verifyOtp: (email: string, otp: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<void>;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
-    const [organizations, setOrganizations] = useState<Organization[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
 
-    useEffect(() => {
-        // Check for existing session on mount
-        const storedUser = TokenManager.getUser();
-        const storedOrgs = TokenManager.getOrganizations();
-        const accessToken = TokenManager.getAccessToken();
+  const { data: user, isLoading, refetch } = useQuery<User | null>({
+    queryKey: ["auth-user"],
+    queryFn: async () => {
+      const token = localStorage.getItem("accessToken");
+      if (!token) return null;
+      try {
+        const { data } = await apiClient.get("/auth/me");
+        const userData = data.data?.user || data.data || data;
 
-        if (storedUser && accessToken) {
-            setUser(storedUser);
-            setOrganizations(storedOrgs);
+        if (userData && userData.name && !userData.firstName) {
+          const [firstName, ...rest] = userData.name.split(" ");
+          userData.firstName = firstName;
+          userData.lastName = rest.join(" ");
         }
-        setIsLoading(false);
-    }, []);
+        return userData;
+      } catch (error) {
+        localStorage.removeItem("accessToken");
+        localStorage.removeItem("refreshToken");
+        return null;
+      }
+    },
+    retry: false,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
 
-    const login = async (email: string, password: string) => {
-        const response = await AuthAPI.login(email, password);
+  const login = async (email: string, password: string) => {
+    const { data } = await apiClient.post("/auth/login", { email, password });
+    const result = data.data;
 
-        if (response.success) {
-            const { user, tokens, organizations } = response.data;
+    if (result?.tokens?.accessToken) {
+      localStorage.setItem("accessToken", result.tokens.accessToken);
+      if (result.tokens.refreshToken) {
+        localStorage.setItem("refreshToken", result.tokens.refreshToken);
+      }
+      await refetch();
+      return { requiresOtp: false, email };
+    }
 
-            TokenManager.setTokens(tokens);
-            TokenManager.setUser(user);
-            TokenManager.setOrganizations(organizations);
+    if (data.accessToken || data.data?.accessToken) {
+      const tokens = data.data || data;
+      localStorage.setItem("accessToken", tokens.accessToken);
+      if (tokens.refreshToken) localStorage.setItem("refreshToken", tokens.refreshToken);
+      await refetch();
+      return { requiresOtp: false, email };
+    }
 
-            setUser(user);
-            setOrganizations(organizations);
-        }
-    };
+    return { requiresOtp: true, email };
+  };
 
-    const signup = async (email: string, password: string, name: string, organizationName: string) => {
-        const response = await AuthAPI.signup(email, password, name, organizationName);
+  const signup = async (email: string, password: string, name: string, organizationName: string) => {
+    await apiClient.post("/auth/signup", {
+      email,
+      password,
+      name,
+      organizationName
+    });
+  };
 
-        if (response.success) {
-            const { user, tokens, organizationId } = response.data;
+  const verifyOtp = async (email: string, otp: string) => {
+    const { data } = await apiClient.post("/auth/verify-email", { email, code: otp });
+    const result = data.data;
 
-            TokenManager.setTokens(tokens);
-            TokenManager.setUser(user);
+    if (result?.tokens) {
+      localStorage.setItem("accessToken", result.tokens.accessToken);
+      if (result.tokens.refreshToken) {
+        localStorage.setItem("refreshToken", result.tokens.refreshToken);
+      }
+    } else if (result?.accessToken || data.accessToken) {
+      const tokens = result || data;
+      localStorage.setItem("accessToken", tokens.accessToken);
+      if (tokens.refreshToken) localStorage.setItem("refreshToken", tokens.refreshToken);
+    }
+    await refetch();
+  };
 
-            // Create initial organization entry
-            const newOrg: Organization = {
-                id: organizationId,
-                name: organizationName,
-                role: "OWNER"
-            };
-            TokenManager.setOrganizations([newOrg]);
+  const forgotPassword = async (email: string) => {
+    await apiClient.post("/auth/forgot-password", { email });
+  };
 
-            setUser(user);
-            setOrganizations([newOrg]);
-        }
-    };
+  const logout = () => {
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("activeOrgId");
+    queryClient.setQueryData(["auth-user"], null);
+    window.location.href = "/signin";
+  };
 
-    const logout = () => {
-        AuthAPI.logout();
-        setUser(null);
-        setOrganizations([]);
-    };
-
-    const verifyOtp = async (email: string, code: string) => {
-        await AuthAPI.verifyOtp(email, code);
-
-        // Update user verification status
-        if (user) {
-            const updatedUser = { ...user, isEmailVerified: true };
-            TokenManager.setUser(updatedUser);
-            setUser(updatedUser);
-        }
-    };
-
-    const resetPassword = async (email: string, code: string, newPassword: string) => {
-        await AuthAPI.resetPassword(email, code, newPassword);
-    };
-
-    const requestPasswordReset = async (email: string) => {
-        await AuthAPI.requestPasswordReset(email);
-    };
-
-    // Get current role from first organization
-    const currentRole = organizations[0]?.role as Role | null;
-
-    // Check if user has at least the minimum role
-    const hasRole = (minRole: Role): boolean => {
-        if (!currentRole) return false;
-        return ROLE_HIERARCHY[currentRole] >= ROLE_HIERARCHY[minRole];
-    };
-
-    const value: AuthContextType = {
-        user,
-        organizations,
-        currentRole,
+  return (
+    <AuthContext.Provider
+      value={{
+        user: user ?? null,
         isAuthenticated: !!user,
         isLoading,
         login,
         signup,
-        logout,
         verifyOtp,
-        resetPassword,
-        requestPasswordReset,
-        hasRole
-    };
+        forgotPassword,
+        logout,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
-    return (
-        <AuthContext.Provider value={value}>
-            {children}
-        </AuthContext.Provider>
-    );
-};
-
-export const useAuth = (): AuthContextType => {
-    const context = useContext(AuthContext);
-    if (context === undefined) {
-        throw new Error("useAuth must be used within an AuthProvider");
-    }
-    return context;
-};
-
-export default AuthContext;
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth must be used within AuthProvider");
+  return context;
+}

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import React, { useState } from "react";
 import { Modal } from "../../components/ui/modal";
+import Select from "../../components/form/Select";
 
 // Types
 type UserStatus = "Active" | "Locked" | "Pending";
@@ -180,27 +181,31 @@ const UserDirectory: React.FC = () => {
                         />
                     </div>
                     <div className="flex gap-2">
-                        <select
-                            value={orgFilter}
-                            onChange={(e) => setOrgFilter(e.target.value)}
-                            className="px-4 py-3 bg-white dark:bg-[#1C1C1C] border border-gray-200 dark:border-white/5 rounded-md text-xs font-bold text-gray-500 uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-brand-500/20 cursor-pointer"
-                        >
-                            <option>All Organizations</option>
-                            <option>TechCorp Industries</option>
-                            <option>StartupXYZ</option>
-                            <option>Continental</option>
-                        </select>
-                        <select
-                            value={roleFilter}
-                            onChange={(e) => setRoleFilter(e.target.value)}
-                            className="px-4 py-3 bg-white dark:bg-[#1C1C1C] border border-gray-200 dark:border-white/5 rounded-md text-xs font-bold text-gray-500 uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-brand-500/20 cursor-pointer"
-                        >
-                            <option>All Roles</option>
-                            <option>SuperAdmin</option>
-                            <option>OrgAdmin</option>
-                            <option>Manager</option>
-                            <option>Employee</option>
-                        </select>
+                        <Select
+                            options={[
+                                { value: "All Organizations", label: "All Organizations" },
+                                { value: "TechCorp Industries", label: "TechCorp Industries" },
+                                { value: "StartupXYZ", label: "StartupXYZ" },
+                                { value: "Continental", label: "Continental" }
+                            ]}
+                            defaultValue={orgFilter}
+                            placeholder="All Organizations"
+                            onChange={val => setOrgFilter(val)}
+                            className="h-full px-4 bg-white dark:bg-[#1C1C1C] border-gray-200 dark:border-white/5 rounded-md text-xs font-bold text-gray-500 uppercase tracking-widest"
+                        />
+                        <Select
+                            options={[
+                                { value: "All Roles", label: "All Roles" },
+                                { value: "SuperAdmin", label: "SuperAdmin" },
+                                { value: "OrgAdmin", label: "OrgAdmin" },
+                                { value: "Manager", label: "Manager" },
+                                { value: "Employee", label: "Employee" }
+                            ]}
+                            defaultValue={roleFilter}
+                            placeholder="All Roles"
+                            onChange={val => setRoleFilter(val)}
+                            className="h-full px-4 bg-white dark:bg-[#1C1C1C] border-gray-200 dark:border-white/5 rounded-md text-xs font-bold text-gray-500 uppercase tracking-widest"
+                        />
                     </div>
                 </div>
 
